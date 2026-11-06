@@ -3,6 +3,7 @@ import { cloudDatabase } from './cloudDatabase';
 export interface UserProfile {
   id: string;
   username: string;
+  password?: string;
   elo: number;
   puzzlePoints: number;
   solvedPuzzleIds: string[];
@@ -150,7 +151,7 @@ class UserService {
     return [...this.users];
   }
 
-  public loginUser(rawUsername: string): UserProfile {
+  public loginUser(rawUsername: string, password?: string): { success: boolean; user: UserProfile; error?: string } {
     const username = rawUsername.trim() || 'Игрок';
     let user = this.users.find(u => u.username.toLowerCase() === username.toLowerCase());
 
@@ -158,6 +159,7 @@ class UserService {
       user = {
         id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         username,
+        password: password ? password.trim() : undefined,
         elo: 1200,
         puzzlePoints: 0,
         solvedPuzzleIds: [],
@@ -168,6 +170,12 @@ class UserService {
       };
       this.users.push(user);
     } else {
+      if (user.password && password && user.password !== password.trim()) {
+        return { success: false, user: this.getCurrentUser(), error: 'Неверный пароль для этого аккаунта' };
+      }
+      if (!user.password && password) {
+        user.password = password.trim();
+      }
       user.lastActiveAt = new Date().toISOString();
     }
 
@@ -175,7 +183,7 @@ class UserService {
     localStorage.setItem(STORAGE_CURRENT_USER_ID, user.id);
     this.saveUsers();
     cloudDatabase.syncPlayer(user);
-    return user;
+    return { success: true, user };
   }
 
   public syncAuth0User(auth0User: {

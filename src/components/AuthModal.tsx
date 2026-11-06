@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, User, Plus, Check, Cloud, RefreshCw, Key, Shield, LogIn } from 'lucide-react';
+import { X, User, Check, RefreshCw, Shield, LogIn, Settings, Lock } from 'lucide-react';
 import { userService } from '../services/userService';
 import type { UserProfile } from '../services/userService';
 import { cloudDatabase } from '../services/cloudDatabase';
@@ -20,10 +20,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onUserChanged
 }) => {
   const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<'profile' | 'cloud' | 'auth0'>('profile');
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [showDevSettings, setShowDevSettings] = useState(false);
+  const [devTab, setDevTab] = useState<'cloud' | 'auth0'>('cloud');
 
   // Cloud credentials form state
   const currentCloudCfg = cloudDatabase.getConfig();
@@ -33,6 +34,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [supabaseUrl, setSupabaseUrl] = useState(currentCloudCfg.supabaseUrl || '');
   const [supabaseKey, setSupabaseKey] = useState(currentCloudCfg.supabaseAnonKey || '');
   const [firebaseUrl, setFirebaseUrl] = useState(currentCloudCfg.firebaseDbUrl || '');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
   // Auth0 form state
   const auth0Cfg = getStoredAuth0Config();
@@ -48,19 +51,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     e.preventDefault();
     const trimmed = usernameInput.trim();
     if (!trimmed) {
-      setError('Введите имя пользователя');
+      setError('Введите желаемый никнейм');
       return;
     }
     if (trimmed.length < 2) {
-      setError('Имя должно содержать минимум 2 символа');
+      setError('Никнейм должен содержать минимум 2 символа');
       return;
     }
 
-    const updatedUser = userService.loginUser(trimmed);
-    onUserChanged(updatedUser);
+    const res = userService.loginUser(trimmed, passwordInput);
+    if (!res.success) {
+      setError(res.error || 'Ошибка входа');
+      return;
+    }
+
+    onUserChanged(res.user);
     setUsernameInput('');
+    setPasswordInput('');
     setError(null);
-    onClose();
+    setSuccessMsg(`Добро пожаловать, ${res.user.username}!`);
+    setTimeout(() => {
+      setSuccessMsg(null);
+      onClose();
+    }, 700);
   };
 
   const handleSwitchProfile = (userId: string) => {
@@ -73,10 +86,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleSyncCloudNow = async () => {
     setIsSyncing(true);
-    setSyncStatus('Синхронизация с облаком...');
+    setSyncStatus('Синхронизация с базой...');
     try {
       const refreshed = await userService.refreshFromCloud();
-      setSyncStatus(`Готово. Синхронизировано игроков: ${refreshed.length}`);
+      setSyncStatus(`Синхронизировано игроков: ${refreshed.length}`);
       const current = userService.getCurrentUser();
       onUserChanged(current);
     } catch {
@@ -96,7 +109,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       firebaseDbUrl: firebaseUrl.trim()
     };
     cloudDatabase.saveConfig(newCfg);
-    setSyncStatus('Настройки облака сохранены!');
+    setSyncStatus('Настройки сохранены! База активирована.');
     setTimeout(() => setSyncStatus(null), 2500);
   };
 
@@ -121,7 +134,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       )}&scope=openid%20profile%20email`;
       window.location.href = url;
     } else {
-      setActiveSection('auth0');
+      setShowDevSettings(true);
+      setDevTab('auth0');
     }
   };
 
@@ -133,7 +147,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-[#1baca6]" strokeWidth={1.5} />
             <span className="font-mono text-sm font-bold tracking-tight text-[#EDEDED]">
-              Профиль & Облачная БД
+              Личный кабинет игрока
             </span>
           </div>
           <button
@@ -144,312 +158,339 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-[#262626] bg-[#141414] text-xs font-mono">
-          <button
-            onClick={() => setActiveSection('profile')}
-            className={`flex-1 py-2 text-center transition-colors border-b-2 ${
-              activeSection === 'profile'
-                ? 'border-[#1baca6] text-[#EDEDED] bg-[#181818] font-bold'
-                : 'border-transparent text-[#777777] hover:text-[#CCCCCC]'
-            }`}
-          >
-            Игрок
-          </button>
-          <button
-            onClick={() => setActiveSection('auth0')}
-            className={`flex-1 py-2 text-center transition-colors border-b-2 flex items-center justify-center gap-1.5 ${
-              activeSection === 'auth0'
-                ? 'border-[#1baca6] text-[#EDEDED] bg-[#181818] font-bold'
-                : 'border-transparent text-[#777777] hover:text-[#CCCCCC]'
-            }`}
-          >
-            <Shield className="w-3.5 h-3.5" />
-            <span>Auth0</span>
-          </button>
-          <button
-            onClick={() => setActiveSection('cloud')}
-            className={`flex-1 py-2 text-center transition-colors border-b-2 flex items-center justify-center gap-1.5 ${
-              activeSection === 'cloud'
-                ? 'border-[#1baca6] text-[#EDEDED] bg-[#181818] font-bold'
-                : 'border-transparent text-[#777777] hover:text-[#CCCCCC]'
-            }`}
-          >
-            <Cloud className="w-3.5 h-3.5" />
-            <span>Облако</span>
-          </button>
-        </div>
-
         <div className="overflow-y-auto flex-1 p-4 space-y-4">
-          {activeSection === 'profile' && (
-            <>
-              {/* Current Active Account Box */}
-              <div className="p-3.5 rounded border border-[#262626] bg-[#161616]">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] font-mono uppercase text-[#777777] tracking-wider">
-                    Активный аккаунт
-                  </span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
-                    {currentUser.authProvider === 'auth0' ? 'Auth0 SSO' : 'Локальный'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-base font-bold text-white">
-                    {currentUser.username}
-                  </span>
-                  <div className="flex items-center gap-2 text-xs font-mono">
-                    <span className="text-[#1baca6] font-bold">{currentUser.elo} ELO</span>
-                    <span className="text-[#444444]">•</span>
-                    <span className="text-[#96bc4b] font-bold">{currentUser.puzzlePoints} б.</span>
-                  </div>
-                </div>
-                <div className="mt-2 text-[11px] font-mono text-[#888888] flex items-center gap-3">
-                  <span>Побед: <strong className="text-[#EDEDED]">{currentUser.stats.wins}</strong></span>
-                  <span>Поражений: <strong className="text-[#EDEDED]">{currentUser.stats.losses}</strong></span>
-                  <span>Ничьих: <strong className="text-[#EDEDED]">{currentUser.stats.draws}</strong></span>
-                </div>
+          {/* Current Active Account Box */}
+          <div className="p-3.5 rounded border border-[#262626] bg-[#161616]">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-mono uppercase text-[#777777] tracking-wider">
+                Текущий активный профиль
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                {currentUser.authProvider === 'auth0' ? 'Auth0' : 'Игрок'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-lg font-bold text-white">
+                {currentUser.username}
+              </span>
+              <div className="flex items-center gap-2 text-xs font-mono">
+                <span className="px-2 py-0.5 rounded bg-[#1baca6]/15 text-[#1baca6] font-bold">
+                  {currentUser.elo} ELO
+                </span>
+                <span className="px-2 py-0.5 rounded bg-[#96bc4b]/15 text-[#96bc4b] font-bold">
+                  {currentUser.puzzlePoints} баллов
+                </span>
               </div>
+            </div>
+            <div className="mt-2 text-[11px] font-mono text-[#888888] flex items-center gap-3">
+              <span>Побед: <strong className="text-[#EDEDED]">{currentUser.stats.wins}</strong></span>
+              <span>Поражений: <strong className="text-[#EDEDED]">{currentUser.stats.losses}</strong></span>
+              <span>Ничьих: <strong className="text-[#EDEDED]">{currentUser.stats.draws}</strong></span>
+              <span>Решено: <strong className="text-[#96bc4b]">{currentUser.solvedPuzzleIds.length}</strong></span>
+            </div>
+          </div>
 
-              {/* Auth0 Login CTA */}
-              <button
-                type="button"
-                onClick={handleAuth0LoginClick}
-                className="w-full py-2 px-3 rounded bg-[#1e293b] hover:bg-[#334155] border border-[#3b82f6]/40 text-xs font-mono font-bold text-white flex items-center justify-center gap-2 transition-colors"
-              >
-                <LogIn className="w-3.5 h-3.5 text-[#38bdf8]" />
-                <span>{isAuth0Configured() ? 'Войти через Auth0 Universal Login' : 'Настроить Auth0 вход'}</span>
-              </button>
+          {/* Simple Direct Registration / Login Form */}
+          <form onSubmit={handleLoginOrCreate} className="space-y-3 p-3.5 rounded border border-[#262626] bg-[#161616]">
+            <div>
+              <span className="text-xs font-mono font-bold text-white block mb-0.5">
+                Регистрация / Вход
+              </span>
+              <p className="text-[11px] font-mono text-[#777777] leading-relaxed mb-3">
+                Введите никнейм. Если аккаунта еще нет — он создастся автоматически, и ваш рейтинг будет сохраняться!
+              </p>
+            </div>
 
-              {/* Login or Create Form */}
-              <form onSubmit={handleLoginOrCreate} className="space-y-3 pt-1">
-                <div>
-                  <label className="text-[11px] font-mono text-[#888888] block mb-1.5">
-                    Быстрый вход по никнейму:
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={usernameInput}
-                      onChange={(e) => {
-                        setUsernameInput(e.target.value);
-                        setError(null);
-                      }}
-                      placeholder="Никнейм игрока"
-                      maxLength={20}
-                      className="flex-1 bg-[#1A1A1A] border border-[#333333] rounded px-3 py-1.5 text-xs font-mono text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#1baca6]"
-                    />
-                    <button
-                      type="submit"
-                      className="px-3 py-1.5 bg-[#1baca6] hover:bg-[#189d97] text-[#0A0A0A] font-mono text-xs font-bold rounded flex items-center gap-1 transition-colors shrink-0"
-                    >
-                      <Plus className="w-3.5 h-3.5" strokeWidth={2} />
-                      <span>Войти</span>
-                    </button>
-                  </div>
-                  {error && (
-                    <span className="text-[10px] text-[#ca3431] font-mono block mt-1">
-                      {error}
-                    </span>
-                  )}
-                </div>
+            <div>
+              <label className="text-[10px] font-mono text-[#888888] uppercase tracking-wider block mb-1">
+                Никнейм игрока:
+              </label>
+              <div className="relative">
+                <User className="w-3.5 h-3.5 text-[#666666] absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={usernameInput}
+                  onChange={(e) => {
+                    setUsernameInput(e.target.value);
+                    setError(null);
+                  }}
+                  placeholder="Например, Kirill"
+                  maxLength={20}
+                  className="w-full bg-[#1A1A1A] border border-[#333333] rounded pl-8 pr-3 py-1.5 text-xs font-mono text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#1baca6]"
+                />
+              </div>
+            </div>
 
-                {/* Profiles list */}
-                {allUsers.length > 1 && (
-                  <div className="pt-2">
-                    <span className="text-[10px] font-mono text-[#666666] uppercase tracking-wider block mb-1.5">
-                      Игроки на этом устройстве:
-                    </span>
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {allUsers.map((u) => {
-                        const isActive = u.id === currentUser.id;
-                        return (
-                          <button
-                            key={u.id}
-                            type="button"
-                            onClick={() => handleSwitchProfile(u.id)}
-                            className={`w-full px-2.5 py-1.5 rounded text-xs font-mono flex items-center justify-between border transition-colors ${
-                              isActive
-                                ? 'bg-[#1baca6]/15 border-[#1baca6]/40 text-white'
-                                : 'bg-[#161616] border-[#222222] text-[#888888] hover:text-[#CCCCCC]'
-                            }`}
-                          >
-                            <span className="font-semibold truncate">{u.username}</span>
-                            <div className="flex items-center gap-2 shrink-0 text-[11px]">
-                              <span>{u.elo} ELO</span>
-                              {isActive && <Check className="w-3.5 h-3.5 text-[#1baca6]" />}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </form>
-            </>
+            <div>
+              <label className="text-[10px] font-mono text-[#888888] uppercase tracking-wider block mb-1">
+                Пароль для защиты (по желанию):
+              </label>
+              <div className="relative">
+                <Lock className="w-3.5 h-3.5 text-[#666666] absolute left-3 top-2.5" />
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => {
+                    setPasswordInput(e.target.value);
+                    setError(null);
+                  }}
+                  placeholder="Любой пароль или оставьте пустым"
+                  className="w-full bg-[#1A1A1A] border border-[#333333] rounded pl-8 pr-3 py-1.5 text-xs font-mono text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#1baca6]"
+                />
+              </div>
+            </div>
+
+            {error && (
+              <span className="text-[11px] text-[#ca3431] font-mono block">
+                {error}
+              </span>
+            )}
+
+            {successMsg && (
+              <span className="text-[11px] text-emerald-400 font-mono block">
+                {successMsg}
+              </span>
+            )}
+
+            <button
+              type="submit"
+              className="w-full py-2 bg-[#1baca6] hover:bg-[#189d97] text-[#0A0A0A] font-mono text-xs font-bold rounded flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Войти / Зарегистрироваться</span>
+            </button>
+          </form>
+
+          {/* Social Auth0 Button (if configured by owner) */}
+          {isAuth0Configured() && (
+            <button
+              type="button"
+              onClick={handleAuth0LoginClick}
+              className="w-full py-2 px-3 rounded bg-[#1e293b] hover:bg-[#334155] border border-[#3b82f6]/40 text-xs font-mono font-bold text-white flex items-center justify-center gap-2 transition-colors"
+            >
+              <Shield className="w-3.5 h-3.5 text-[#38bdf8]" />
+              <span>Войти через Google / GitHub / Email (Auth0)</span>
+            </button>
           )}
 
-          {activeSection === 'auth0' && (
-            <div className="space-y-3 text-xs font-mono">
-              <div className="p-3 rounded border border-[#262626] bg-[#161616] space-y-1.5">
-                <div className="flex items-center gap-2 text-white font-bold">
-                  <Shield className="w-4 h-4 text-[#38bdf8]" />
-                  <span>Auth0 Single Sign-On</span>
-                </div>
-                <p className="text-[11px] text-[#888888] leading-relaxed">
-                  Позволяет игрокам регистрироваться с любых компьютеров и телефонов через Email, Google, GitHub или Passkeys (WebAuthn).
-                </p>
+          {/* Multiple Accounts Switcher on this device */}
+          {allUsers.length > 1 && (
+            <div className="pt-1">
+              <span className="text-[10px] font-mono text-[#666666] uppercase tracking-wider block mb-1.5">
+                Игроки на этом устройстве:
+              </span>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {allUsers.map((u) => {
+                  const isActive = u.id === currentUser.id;
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => handleSwitchProfile(u.id)}
+                      className={`w-full px-2.5 py-1.5 rounded text-xs font-mono flex items-center justify-between border transition-colors ${
+                        isActive
+                          ? 'bg-[#1baca6]/15 border-[#1baca6]/40 text-white'
+                          : 'bg-[#161616] border-[#222222] text-[#888888] hover:text-[#CCCCCC]'
+                      }`}
+                    >
+                      <span className="font-semibold truncate">{u.username}</span>
+                      <div className="flex items-center gap-2 shrink-0 text-[11px]">
+                        <span>{u.elo} ELO</span>
+                        {isActive && <Check className="w-3.5 h-3.5 text-[#1baca6]" />}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
+            </div>
+          )}
 
-              <form onSubmit={handleSaveAuth0} className="space-y-2.5 pt-1">
-                <div>
-                  <label className="text-[10px] text-[#777777] uppercase tracking-wider block mb-1">
-                    Auth0 Domain:
-                  </label>
-                  <input
-                    type="text"
-                    value={auth0Domain}
-                    onChange={(e) => setAuth0Domain(e.target.value)}
-                    placeholder="dev-xyz.us.auth0.com"
-                    className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2.5 py-1.5 text-xs text-[#EDEDED] font-mono focus:outline-none focus:border-[#1baca6]"
-                  />
+          {/* Developer / Project Owner Settings (Collapsible, hidden for normal users) */}
+          <div className="pt-2 border-t border-[#262626]">
+            <button
+              type="button"
+              onClick={() => setShowDevSettings(!showDevSettings)}
+              className="w-full flex items-center justify-between text-[11px] font-mono text-[#666666] hover:text-[#AAAAAA] p-1.5 rounded hover:bg-[#161616] transition-colors"
+            >
+              <div className="flex items-center gap-1.5">
+                <Settings className="w-3.5 h-3.5 text-zinc-500" />
+                <span>Настройки владельца сайта (База данных & Auth0)</span>
+              </div>
+              <span>{showDevSettings ? '▲ Скрыть' : '▼ Настроить'}</span>
+            </button>
+
+            {showDevSettings && (
+              <div className="mt-2.5 p-3 rounded border border-[#2a2a2a] bg-[#141414] space-y-3 text-xs font-mono animate-in fade-in duration-150">
+                <div className="text-[11px] text-[#888888] leading-relaxed bg-[#0F0F0F] p-2.5 rounded border border-[#222222]">
+                  <strong className="text-white block mb-0.5">Информация для владельца сайта:</strong>
+                  Обычным игрокам эти настройки трогать не нужно — они просто вводят свой ник вверху.
+                  Здесь ты можешь один раз подключить базу данных (Supabase или Firebase), чтобы игроки с любых устройств сохранялись в одну общую таблицу лидеров.
                 </div>
 
-                <div>
-                  <label className="text-[10px] text-[#777777] uppercase tracking-wider block mb-1">
-                    Auth0 Client ID:
-                  </label>
-                  <input
-                    type="text"
-                    value={auth0ClientId}
-                    onChange={(e) => setAuth0ClientId(e.target.value)}
-                    placeholder="Ваш Client ID приложения"
-                    className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2.5 py-1.5 text-xs text-[#EDEDED] font-mono focus:outline-none focus:border-[#1baca6]"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 pt-2">
+                <div className="flex border-b border-[#262626] text-[11px]">
                   <button
-                    type="submit"
-                    className="flex-1 py-1.5 bg-[#EDEDED] hover:bg-white text-black font-bold rounded text-xs transition-colors flex items-center justify-center gap-1.5"
+                    type="button"
+                    onClick={() => setDevTab('cloud')}
+                    className={`flex-1 py-1 text-center border-b-2 ${
+                      devTab === 'cloud'
+                        ? 'border-[#1baca6] text-white font-bold'
+                        : 'border-transparent text-[#666666]'
+                    }`}
                   >
-                    <Key className="w-3.5 h-3.5" />
-                    <span>Сохранить настройки Auth0</span>
+                    Облачная БД
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDevTab('auth0')}
+                    className={`flex-1 py-1 text-center border-b-2 ${
+                      devTab === 'auth0'
+                        ? 'border-[#1baca6] text-white font-bold'
+                        : 'border-transparent text-[#666666]'
+                    }`}
+                  >
+                    Auth0 SSO
                   </button>
                 </div>
 
-                {auth0Saved && (
-                  <span className="text-[11px] text-emerald-400 block text-center mt-1">
-                    Сохранено! Перезагрузка страницы...
-                  </span>
-                )}
-              </form>
-            </div>
-          )}
+                {devTab === 'cloud' && (
+                  <form onSubmit={handleSaveCloudConfig} className="space-y-2.5 pt-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-[#888888]">Статус подключения:</span>
+                      <span className={cloudDatabase.isConnected ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+                        {cloudDatabase.isConnected ? 'Подключено' : 'Ожидание ключей'}
+                      </span>
+                    </div>
 
-          {activeSection === 'cloud' && (
-            <div className="space-y-3 text-xs font-mono">
-              <div className="p-3 rounded border border-[#262626] bg-[#161616] space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-white font-bold">
-                    <Cloud className="w-4 h-4 text-[#1baca6]" />
-                    <span>Синхронизация Базы Данных</span>
-                  </div>
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      cloudDatabase.isConnected ? 'bg-emerald-400' : 'bg-amber-400'
-                    }`}
-                  />
-                </div>
-                <p className="text-[11px] text-[#888888] leading-relaxed">
-                  {cloudDatabase.statusMessage}
-                </p>
-                <button
-                  type="button"
-                  onClick={handleSyncCloudNow}
-                  disabled={isSyncing}
-                  className="w-full py-1.5 px-2.5 rounded bg-[#202020] hover:bg-[#282828] border border-[#333333] text-zinc-200 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                  <span>Обновить данные с облака</span>
-                </button>
-                {syncStatus && (
-                  <span className="text-[10px] text-emerald-400 block text-center">
-                    {syncStatus}
-                  </span>
-                )}
-              </div>
-
-              {/* Cloud Provider Configuration */}
-              <form onSubmit={handleSaveCloudConfig} className="space-y-2.5 pt-1">
-                <div>
-                  <label className="text-[10px] text-[#777777] uppercase tracking-wider block mb-1">
-                    Облачный провайдер:
-                  </label>
-                  <select
-                    value={cloudProvider}
-                    onChange={(e) => setCloudProvider(e.target.value as CloudConfig['provider'])}
-                    className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2.5 py-1.5 text-xs text-[#EDEDED] font-mono focus:outline-none focus:border-[#1baca6]"
-                  >
-                    <option value="none">Локальный с облачным кэшем</option>
-                    <option value="supabase">Supabase (PostgreSQL Cloud)</option>
-                    <option value="firebase">Firebase Realtime Database</option>
-                  </select>
-                </div>
-
-                {cloudProvider === 'supabase' && (
-                  <>
                     <div>
-                      <label className="text-[10px] text-[#777777] uppercase tracking-wider block mb-1">
-                        Supabase URL:
+                      <label className="text-[10px] text-[#777777] uppercase block mb-1">
+                        Провайдер:
+                      </label>
+                      <select
+                        value={cloudProvider}
+                        onChange={(e) => setCloudProvider(e.target.value as CloudConfig['provider'])}
+                        className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2 py-1 text-xs text-[#EDEDED] font-mono"
+                      >
+                        <option value="none">Локальный кэш (по умолчанию)</option>
+                        <option value="supabase">Supabase (бесплатный PostgreSQL)</option>
+                        <option value="firebase">Firebase Realtime Database</option>
+                      </select>
+                    </div>
+
+                    {cloudProvider === 'supabase' && (
+                      <>
+                        <div>
+                          <label className="text-[10px] text-[#777777] uppercase block mb-0.5">
+                            Supabase URL:
+                          </label>
+                          <input
+                            type="text"
+                            value={supabaseUrl}
+                            onChange={(e) => setSupabaseUrl(e.target.value)}
+                            placeholder="https://xyz.supabase.co"
+                            className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2 py-1 text-xs text-[#EDEDED] font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-[#777777] uppercase block mb-0.5">
+                            Supabase Anon Key:
+                          </label>
+                          <input
+                            type="password"
+                            value={supabaseKey}
+                            onChange={(e) => setSupabaseKey(e.target.value)}
+                            placeholder="eyJhbGciOi..."
+                            className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2 py-1 text-xs text-[#EDEDED] font-mono"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {cloudProvider === 'firebase' && (
+                      <div>
+                        <label className="text-[10px] text-[#777777] uppercase block mb-0.5">
+                          Firebase Realtime DB URL:
+                        </label>
+                        <input
+                          type="text"
+                          value={firebaseUrl}
+                          onChange={(e) => setFirebaseUrl(e.target.value)}
+                          placeholder="https://xyz-default-rtdb.firebaseio.com"
+                          className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2 py-1 text-xs text-[#EDEDED] font-mono"
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="submit"
+                        className="flex-1 py-1.5 bg-[#1baca6] text-black font-bold rounded text-xs"
+                      >
+                        Сохранить БД
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSyncCloudNow}
+                        disabled={isSyncing}
+                        className="px-3 py-1.5 bg-[#202020] border border-[#333333] text-zinc-300 rounded text-xs flex items-center gap-1"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                        <span>Синхронизировать</span>
+                      </button>
+                    </div>
+
+                    {syncStatus && (
+                      <span className="text-[10px] text-emerald-400 block text-center mt-1">
+                        {syncStatus}
+                      </span>
+                    )}
+                  </form>
+                )}
+
+                {devTab === 'auth0' && (
+                  <form onSubmit={handleSaveAuth0} className="space-y-2.5 pt-1">
+                    <p className="text-[10px] text-[#777777] leading-relaxed">
+                      Чтобы включить вход через Google/GitHub/Email на Auth0.com: создай бесплатное SPA-приложение и скопируй сюда Domain и Client ID.
+                    </p>
+                    <div>
+                      <label className="text-[10px] text-[#777777] uppercase block mb-0.5">
+                        Domain:
                       </label>
                       <input
                         type="text"
-                        value={supabaseUrl}
-                        onChange={(e) => setSupabaseUrl(e.target.value)}
-                        placeholder="https://xyz.supabase.co"
-                        className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2.5 py-1.5 text-xs text-[#EDEDED] font-mono focus:outline-none focus:border-[#1baca6]"
+                        value={auth0Domain}
+                        onChange={(e) => setAuth0Domain(e.target.value)}
+                        placeholder="dev-xyz.us.auth0.com"
+                        className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2 py-1 text-xs text-[#EDEDED] font-mono"
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] text-[#777777] uppercase tracking-wider block mb-1">
-                        Supabase Anon Key:
+                      <label className="text-[10px] text-[#777777] uppercase block mb-0.5">
+                        Client ID:
                       </label>
                       <input
-                        type="password"
-                        value={supabaseKey}
-                        onChange={(e) => setSupabaseKey(e.target.value)}
-                        placeholder="eyJhbGciOi..."
-                        className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2.5 py-1.5 text-xs text-[#EDEDED] font-mono focus:outline-none focus:border-[#1baca6]"
+                        type="text"
+                        value={auth0ClientId}
+                        onChange={(e) => setAuth0ClientId(e.target.value)}
+                        placeholder="Ваш Client ID"
+                        className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2 py-1 text-xs text-[#EDEDED] font-mono"
                       />
                     </div>
-                  </>
+                    <button
+                      type="submit"
+                      className="w-full py-1.5 bg-[#EDEDED] text-black font-bold rounded text-xs"
+                    >
+                      Сохранить Auth0
+                    </button>
+                    {auth0Saved && (
+                      <span className="text-[10px] text-emerald-400 block text-center">
+                        Сохранено! Перезагрузка...
+                      </span>
+                    )}
+                  </form>
                 )}
-
-                {cloudProvider === 'firebase' && (
-                  <div>
-                    <label className="text-[10px] text-[#777777] uppercase tracking-wider block mb-1">
-                      Firebase Realtime DB URL:
-                    </label>
-                    <input
-                      type="text"
-                      value={firebaseUrl}
-                      onChange={(e) => setFirebaseUrl(e.target.value)}
-                      placeholder="https://xyz-default-rtdb.firebaseio.com"
-                      className="w-full bg-[#1A1A1A] border border-[#333333] rounded px-2.5 py-1.5 text-xs text-[#EDEDED] font-mono focus:outline-none focus:border-[#1baca6]"
-                    />
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  className="w-full py-1.5 bg-[#1baca6] hover:bg-[#189d97] text-[#0A0A0A] font-bold rounded text-xs transition-colors flex items-center justify-center gap-1.5"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Сохранить подключение к базе</span>
-                </button>
-              </form>
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
