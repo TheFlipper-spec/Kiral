@@ -11,13 +11,18 @@ export interface CloudConfig {
 
 const STORAGE_CLOUD_CONFIG_KEY = 'kiral_cloud_config_v1';
 
-// Default public demonstration Supabase endpoints or environment fallbacks
-const DEFAULT_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const DEFAULT_SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-const DEFAULT_FIREBASE_URL = import.meta.env.VITE_FIREBASE_DB_URL || '';
+// Built-in configured Supabase production cloud database
+const DEFAULT_SUPABASE_URL =
+  import.meta.env.VITE_SUPABASE_URL || 'https://fohaoxbaudmlgxcvlveh.supabase.co';
+const DEFAULT_SUPABASE_KEY =
+  import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_kJwbCLRHf74K7DL2MRSpqQ_mP4l4mZB';
 
 class CloudDatabaseService {
-  private config: CloudConfig = { provider: 'none' };
+  private config: CloudConfig = {
+    provider: 'supabase',
+    supabaseUrl: DEFAULT_SUPABASE_URL,
+    supabaseAnonKey: DEFAULT_SUPABASE_KEY
+  };
   private supabase: SupabaseClient | null = null;
   public isConnected: boolean = false;
   public statusMessage: string = 'Инициализация...';
@@ -32,30 +37,22 @@ class CloudDatabaseService {
     try {
       const saved = localStorage.getItem(STORAGE_CLOUD_CONFIG_KEY);
       if (saved) {
-        this.config = JSON.parse(saved);
-        return;
+        const parsed = JSON.parse(saved);
+        if (parsed.provider === 'supabase' && parsed.supabaseUrl && parsed.supabaseAnonKey) {
+          this.config = parsed;
+          return;
+        }
       }
     } catch {
       // Ignore
     }
 
-    // Fallback to build-time environment variables
-    if (DEFAULT_SUPABASE_URL && DEFAULT_SUPABASE_KEY) {
-      this.config = {
-        provider: 'supabase',
-        supabaseUrl: DEFAULT_SUPABASE_URL,
-        supabaseAnonKey: DEFAULT_SUPABASE_KEY
-      };
-    } else if (DEFAULT_FIREBASE_URL) {
-      this.config = {
-        provider: 'firebase',
-        firebaseDbUrl: DEFAULT_FIREBASE_URL
-      };
-    } else {
-      this.config = {
-        provider: 'none'
-      };
-    }
+    // Default to production Supabase cloud database
+    this.config = {
+      provider: 'supabase',
+      supabaseUrl: DEFAULT_SUPABASE_URL,
+      supabaseAnonKey: DEFAULT_SUPABASE_KEY
+    };
   }
 
   public saveConfig(newConfig: CloudConfig) {
