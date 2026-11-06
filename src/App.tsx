@@ -15,8 +15,11 @@ import { SAMPLE_GAMES } from './data/sampleGames';
 import { PUZZLES } from './data/puzzles';
 import { LeaderboardModal } from './components/LeaderboardModal';
 import { AuthModal } from './components/AuthModal';
+import { ScoreDeltaNotification } from './components/ScoreDeltaNotification';
+import type { ScoreDeltaData } from './components/ScoreDeltaNotification';
 import { userService } from './services/userService';
 import type { UserProfile } from './services/userService';
+import { cloudDatabase } from './services/cloudDatabase';
 import { classifySingleMove, calculatePlayerAccuracy } from './engine/evalFormulas';
 import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES } from './types/chess';
 import type { GameReport, MoveAnalysis, MoveClassification, EngineEvaluation } from './types/chess';
@@ -26,6 +29,15 @@ export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => userService.getCurrentUser());
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false);
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+  const [scoreDelta, setScoreDelta] = useState<ScoreDeltaData | null>(null);
+  const [isCloudConnected, setIsCloudConnected] = useState<boolean>(() => cloudDatabase.isConnected);
+
+  useEffect(() => {
+    const updateCloud = () => setIsCloudConnected(cloudDatabase.isConnected);
+    updateCloud();
+    const interval = setInterval(updateCloud, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Game mode & AI settings
   const [gameMode, setGameMode] = useState<GameMode>('review');
@@ -275,11 +287,33 @@ export const App: React.FC = () => {
                   const matchRes = userService.recordMatchResult(botCfg.eloApprox, 'loss');
                   setCurrentUser(userService.getCurrentUser());
                   setGameOverMessage(`${over} • ${matchRes.message}`);
-                  sound.speak('Поражение. Снижение рейтинга');
+                  sound.playDefeat();
+                  sound.speak(`Поражение. ${matchRes.eloChange} Эло.`);
+                  setScoreDelta({
+                    id: `elo-${Date.now()}`,
+                    type: 'elo',
+                    title: 'Поражение от Stockfish',
+                    delta: matchRes.eloChange,
+                    oldValue: matchRes.oldElo,
+                    newValue: matchRes.newElo,
+                    unit: 'ELO',
+                    isPositive: false
+                  });
                 } else if (chess.isDraw() || chess.isStalemate()) {
                   const matchRes = userService.recordMatchResult(botCfg.eloApprox, 'draw');
                   setCurrentUser(userService.getCurrentUser());
                   setGameOverMessage(`${over} • ${matchRes.message}`);
+                  setScoreDelta({
+                    id: `elo-${Date.now()}`,
+                    type: 'elo',
+                    title: 'Ничья со Stockfish',
+                    delta: 0,
+                    oldValue: matchRes.oldElo,
+                    newValue: matchRes.newElo,
+                    unit: 'ELO',
+                    isPositive: false,
+                    isNeutral: true
+                  });
                 } else {
                   setGameOverMessage(over);
                 }
@@ -424,7 +458,18 @@ export const App: React.FC = () => {
                   setSolvedPuzzlesCount((c) => c + 1);
                   const pRes = userService.recordPuzzleSolved(activePuzzle.id, activePuzzle.rating);
                   setCurrentUser(userService.getCurrentUser());
+                  sound.playVictory();
                   sound.speak(`Задача решена! Плюс ${pRes.pointsAwarded} баллов.`);
+                  setScoreDelta({
+                    id: `puzzle-${Date.now()}`,
+                    type: 'puzzle',
+                    title: 'Задача Решена!',
+                    delta: pRes.pointsAwarded,
+                    oldValue: pRes.oldTotalPoints,
+                    newValue: pRes.newTotalPoints,
+                    unit: 'баллов',
+                    isPositive: true
+                  });
                 }
               }
             } catch (err) {
@@ -436,7 +481,18 @@ export const App: React.FC = () => {
           setSolvedPuzzlesCount((c) => c + 1);
           const pRes = userService.recordPuzzleSolved(activePuzzle.id, activePuzzle.rating);
           setCurrentUser(userService.getCurrentUser());
+          sound.playVictory();
           sound.speak(`Задача решена! Плюс ${pRes.pointsAwarded} баллов.`);
+          setScoreDelta({
+            id: `puzzle-${Date.now()}`,
+            type: 'puzzle',
+            title: 'Задача Решена!',
+            delta: pRes.pointsAwarded,
+            oldValue: pRes.oldTotalPoints,
+            newValue: pRes.newTotalPoints,
+            unit: 'баллов',
+            isPositive: true
+          });
         }
         return true;
       } else {
@@ -492,11 +548,33 @@ export const App: React.FC = () => {
           const matchRes = userService.recordMatchResult(botCfg.eloApprox, 'win');
           setCurrentUser(userService.getCurrentUser());
           setGameOverMessage(`${overStatus} • ${matchRes.message}`);
-          sound.speak('Победа! Вам начислен рейтинг Эло');
+          sound.playVictory();
+          sound.speak(`Победа! Плюс ${matchRes.eloChange} Эло.`);
+          setScoreDelta({
+            id: `elo-${Date.now()}`,
+            type: 'elo',
+            title: 'Победа над Stockfish',
+            delta: matchRes.eloChange,
+            oldValue: matchRes.oldElo,
+            newValue: matchRes.newElo,
+            unit: 'ELO',
+            isPositive: true
+          });
         } else if (chess.isDraw() || chess.isStalemate()) {
           const matchRes = userService.recordMatchResult(botCfg.eloApprox, 'draw');
           setCurrentUser(userService.getCurrentUser());
           setGameOverMessage(`${overStatus} • ${matchRes.message}`);
+          setScoreDelta({
+            id: `elo-${Date.now()}`,
+            type: 'elo',
+            title: 'Ничья со Stockfish',
+            delta: 0,
+            oldValue: matchRes.oldElo,
+            newValue: matchRes.newElo,
+            unit: 'ELO',
+            isPositive: false,
+            isNeutral: true
+          });
         } else {
           setGameOverMessage(overStatus);
         }
@@ -888,12 +966,15 @@ export const App: React.FC = () => {
         gameTitle={gameTitle}
         isAiThinking={isAiThinking}
         currentUser={currentUser}
+        scoreDelta={scoreDelta}
+        isCloudConnected={isCloudConnected}
         onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
         onOpenAuth={() => setIsAuthOpen(true)}
       />
 
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_420px] overflow-hidden">
-        <section className="h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A]">
+        <section className="relative h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A]">
+          <ScoreDeltaNotification data={scoreDelta} onDismiss={() => setScoreDelta(null)} />
           <ChessboardArea
             fen={currentFen}
             isFlipped={isFlipped}

@@ -1,7 +1,8 @@
 import React from 'react';
-import { Upload, RotateCcw, BookOpen, Swords, Users, Target, Trophy, User } from 'lucide-react';
+import { Upload, RotateCcw, BookOpen, Swords, Users, Target, Trophy, User, Cloud } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
+import type { ScoreDeltaData } from './ScoreDeltaNotification';
 
 export type GameMode = 'review' | 'vs-ai' | 'pvp' | 'puzzles';
 
@@ -18,6 +19,8 @@ interface HeaderProps {
   gameTitle?: string;
   isAiThinking?: boolean;
   currentUser?: UserProfile;
+  scoreDelta?: ScoreDeltaData | null;
+  isCloudConnected?: boolean;
   onOpenLeaderboard: () => void;
   onOpenAuth: () => void;
 }
@@ -35,6 +38,8 @@ export const Header: React.FC<HeaderProps> = ({
   gameTitle,
   isAiThinking,
   currentUser,
+  scoreDelta,
+  isCloudConnected = false,
   onOpenLeaderboard,
   onOpenAuth
 }) => {
@@ -231,6 +236,15 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="h-4 w-[1px] bg-[#262626] mx-1" />
 
+        {/* Cloud database status badge */}
+        <div
+          className="hidden sm:flex items-center gap-1 px-1.5 py-1 rounded bg-[#121212] border border-[#262626] text-[10px] font-mono text-[#888888]"
+          title={isCloudConnected ? 'Облачная база данных подключена (реальные игроки онлайн)' : 'Локальный режим с облачной синхронизацией'}
+        >
+          <Cloud className={`w-3 h-3 ${isCloudConnected ? 'text-emerald-400' : 'text-[#666666]'}`} strokeWidth={1.5} />
+          <span className={`w-1.5 h-1.5 rounded-full ${isCloudConnected ? 'bg-emerald-400' : 'bg-amber-500/80'}`} />
+        </div>
+
         {/* Leaderboard button */}
         <button
           onClick={onOpenLeaderboard}
@@ -241,21 +255,66 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden lg:inline">Топ</span>
         </button>
 
-        {/* User profile button */}
+        {/* User profile button with floating score delta animation */}
         {currentUser && (
-          <button
-            onClick={onOpenAuth}
-            className="px-2 py-1 rounded bg-[#161616] hover:bg-[#202020] border border-[#262626] transition-colors flex items-center gap-1.5 text-xs font-mono"
-            title="Профиль игрока и сохранение прогресса"
-          >
-            <User className="w-3.5 h-3.5 text-[#1baca6]" strokeWidth={1.5} />
-            <span className="font-semibold text-white truncate max-w-[80px] sm:max-w-[110px]">
-              {currentUser.username}
-            </span>
-            <span className="px-1 py-0.2 rounded bg-[#1baca6]/20 text-[#1baca6] font-bold text-[10px]">
-              {currentUser.elo}
-            </span>
-          </button>
+          <div className="relative">
+            {/* Floating Delta Badge Animation */}
+            {scoreDelta && (
+              <div
+                key={scoreDelta.id}
+                className={`absolute -top-7 right-0 pointer-events-none z-50 px-2 py-0.5 rounded text-[11px] font-mono font-bold border shadow-lg animate-delta-float whitespace-nowrap ${
+                  scoreDelta.type === 'puzzle'
+                    ? 'bg-cyan-950 text-cyan-300 border-cyan-700'
+                    : scoreDelta.isPositive
+                    ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                    : scoreDelta.isNeutral
+                    ? 'bg-zinc-900 text-zinc-300 border-zinc-700'
+                    : 'bg-rose-950 text-rose-300 border-rose-700'
+                }`}
+              >
+                {scoreDelta.type === 'puzzle'
+                  ? `+${scoreDelta.delta} б.`
+                  : scoreDelta.isPositive
+                  ? `+${scoreDelta.delta} ELO`
+                  : scoreDelta.isNeutral
+                  ? `0 ELO`
+                  : `${scoreDelta.delta} ELO`}
+              </div>
+            )}
+
+            <button
+              onClick={onOpenAuth}
+              className={`px-2 py-1 rounded bg-[#161616] hover:bg-[#202020] border transition-all flex items-center gap-1.5 text-xs font-mono ${
+                scoreDelta
+                  ? scoreDelta.isPositive || scoreDelta.type === 'puzzle'
+                    ? 'border-emerald-600/80 shadow-[0_0_10px_rgba(34,197,94,0.15)]'
+                    : 'border-rose-600/80'
+                  : 'border-[#262626]'
+              }`}
+              title="Профиль игрока и сохранение прогресса"
+            >
+              {currentUser.avatarUrl ? (
+                <img
+                  src={currentUser.avatarUrl}
+                  alt={currentUser.username}
+                  className="w-4 h-4 rounded-full border border-white/20 object-cover"
+                />
+              ) : (
+                <User className="w-3.5 h-3.5 text-[#1baca6]" strokeWidth={1.5} />
+              )}
+              <span className="font-semibold text-white truncate max-w-[80px] sm:max-w-[110px]">
+                {currentUser.username}
+              </span>
+              <span className="px-1 py-0.2 rounded bg-[#1baca6]/20 text-[#1baca6] font-bold text-[10px]">
+                {currentUser.elo}
+              </span>
+              {currentUser.puzzlePoints > 0 && (
+                <span className="hidden sm:inline px-1 py-0.2 rounded bg-amber-500/10 text-amber-400 font-bold text-[10px]">
+                  {currentUser.puzzlePoints}б
+                </span>
+              )}
+            </button>
+          </div>
         )}
       </div>
     </header>

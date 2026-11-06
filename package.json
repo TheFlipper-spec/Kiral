@@ -12,6 +12,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@auth0/auth0-react": "^2.30.0",
+    "@supabase/supabase-js": "^2.119.0",
     "chess.js": "^1.4.0",
     "lucide-react": "^1.70.0",
     "react": "^19.3.1",

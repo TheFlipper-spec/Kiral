@@ -1,3 +1,5 @@
+import { cloudDatabase } from './cloudDatabase';
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -10,60 +12,15 @@ export interface UserProfile {
     draws: number;
     totalGames: number;
   };
+  authProvider?: 'guest' | 'auth0' | 'custom';
+  avatarUrl?: string;
+  email?: string;
   createdAt: string;
+  lastActiveAt?: string;
 }
 
-const STORAGE_USERS_KEY = 'kiral_chess_users_v1';
-const STORAGE_CURRENT_USER_ID = 'kiral_chess_current_user_id_v1';
-
-// Initial realistic community leaderboard contenders
-const DEFAULT_COMMUNITY_USERS: UserProfile[] = [
-  {
-    id: 'user-gm-alex',
-    username: 'Grandmaster_A',
-    elo: 2340,
-    puzzlePoints: 480,
-    solvedPuzzleIds: ['back-rank-1', 'fork-knight-1', 'fork-knight-c7', 'pin-bishop-queen', 'opera-mate', 'smothered-mate', 'anastasia-mate', 'arabian-mate', 'discovered-attack-queen', 'deflection-queen-sacrifice', 'back-rank-deflection', 'double-attack-fork'],
-    stats: { wins: 42, losses: 5, draws: 9, totalGames: 56 },
-    createdAt: '2026-01-10'
-  },
-  {
-    id: 'user-tactics-fox',
-    username: 'TacticsFox',
-    elo: 1980,
-    puzzlePoints: 390,
-    solvedPuzzleIds: ['back-rank-1', 'fork-knight-1', 'fork-knight-c7', 'pin-bishop-queen', 'opera-mate', 'smothered-mate', 'anastasia-mate', 'arabian-mate', 'back-rank-deflection', 'double-attack-fork'],
-    stats: { wins: 31, losses: 14, draws: 6, totalGames: 51 },
-    createdAt: '2026-02-14'
-  },
-  {
-    id: 'user-deep-pawn',
-    username: 'DeepPawn',
-    elo: 1650,
-    puzzlePoints: 310,
-    solvedPuzzleIds: ['back-rank-1', 'fork-knight-1', 'fork-knight-c7', 'pin-bishop-queen', 'opera-mate', 'smothered-mate', 'back-rank-deflection', 'double-attack-fork'],
-    stats: { wins: 22, losses: 18, draws: 4, totalGames: 44 },
-    createdAt: '2026-03-01'
-  },
-  {
-    id: 'user-endgame-hero',
-    username: 'EndgameHero',
-    elo: 1420,
-    puzzlePoints: 240,
-    solvedPuzzleIds: ['back-rank-1', 'fork-knight-1', 'fork-knight-c7', 'pin-bishop-queen', 'back-rank-deflection', 'double-attack-fork'],
-    stats: { wins: 15, losses: 16, draws: 3, totalGames: 34 },
-    createdAt: '2026-03-20'
-  },
-  {
-    id: 'user-casual-player',
-    username: 'QuietMove',
-    elo: 1180,
-    puzzlePoints: 120,
-    solvedPuzzleIds: ['back-rank-1', 'fork-knight-1', 'double-attack-fork'],
-    stats: { wins: 8, losses: 12, draws: 2, totalGames: 22 },
-    createdAt: '2026-04-05'
-  }
-];
+const STORAGE_USERS_KEY = 'kiral_real_chess_users_v2';
+const STORAGE_CURRENT_USER_ID = 'kiral_chess_current_user_id_v2';
 
 class UserService {
   private users: UserProfile[] = [];
@@ -71,6 +28,7 @@ class UserService {
 
   constructor() {
     this.loadState();
+    this.initCloudSync();
   }
 
   private loadState() {
@@ -81,35 +39,89 @@ class UserService {
       if (rawUsers) {
         this.users = JSON.parse(rawUsers);
       } else {
-        this.users = [...DEFAULT_COMMUNITY_USERS];
-        this.saveUsers();
+        this.users = [];
       }
 
       const savedCurrentId = localStorage.getItem(STORAGE_CURRENT_USER_ID);
       if (savedCurrentId && this.users.some(u => u.id === savedCurrentId)) {
         this.currentUserId = savedCurrentId;
       } else {
-        // Create or assign default active player
-        let defaultPlayer = this.users.find(u => u.id === 'user-guest');
+        // Create initial real player
+        let defaultPlayer = this.users[0];
         if (!defaultPlayer) {
           defaultPlayer = {
-            id: 'user-guest',
+            id: `player-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
             username: 'Игрок',
             elo: 1200,
             puzzlePoints: 0,
             solvedPuzzleIds: [],
             stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
-            createdAt: new Date().toISOString().slice(0, 10)
+            authProvider: 'guest',
+            createdAt: new Date().toISOString().slice(0, 10),
+            lastActiveAt: new Date().toISOString()
           };
-          this.users.unshift(defaultPlayer);
+          this.users.push(defaultPlayer);
           this.saveUsers();
         }
         this.currentUserId = defaultPlayer.id;
         localStorage.setItem(STORAGE_CURRENT_USER_ID, this.currentUserId);
       }
     } catch {
-      this.users = [...DEFAULT_COMMUNITY_USERS];
+      this.users = [];
     }
+  }
+
+  private async initCloudSync() {
+    try {
+      const remotePlayers = await cloudDatabase.fetchGlobalPlayers();
+      if (remotePlayers && remotePlayers.length > 0) {
+        this.mergePlayers(remotePlayers);
+      }
+      const current = this.getCurrentUser();
+      if (current) {
+        cloudDatabase.syncPlayer(current);
+      }
+    } catch (err) {
+      console.warn('Initial cloud sync warning:', err);
+    }
+  }
+
+  public async refreshFromCloud(): Promise<UserProfile[]> {
+    try {
+      const remote = await cloudDatabase.fetchGlobalPlayers();
+      if (remote && remote.length > 0) {
+        this.mergePlayers(remote);
+      }
+    } catch (e) {
+      console.warn('Cloud refresh failed:', e);
+    }
+    return this.getAllUsers();
+  }
+
+  private mergePlayers(remotePlayers: UserProfile[]) {
+    const map = new Map<string, UserProfile>();
+    this.users.forEach((u) => map.set(u.id, u));
+
+    remotePlayers.forEach((rem) => {
+      const existing = map.get(rem.id);
+      if (!existing) {
+        map.set(rem.id, rem);
+      } else {
+        const higherElo = Math.max(existing.elo, rem.elo);
+        const higherPoints = Math.max(existing.puzzlePoints, rem.puzzlePoints);
+        const allSolved = Array.from(new Set([...existing.solvedPuzzleIds, ...rem.solvedPuzzleIds]));
+        map.set(rem.id, {
+          ...existing,
+          ...rem,
+          elo: higherElo,
+          puzzlePoints: higherPoints,
+          solvedPuzzleIds: allSolved
+        });
+      }
+    });
+
+    this.users = Array.from(map.values());
+    this.saveUsers();
   }
 
   private saveUsers() {
@@ -150,14 +162,61 @@ class UserService {
         puzzlePoints: 0,
         solvedPuzzleIds: [],
         stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
-        createdAt: new Date().toISOString().slice(0, 10)
+        authProvider: 'custom',
+        createdAt: new Date().toISOString().slice(0, 10),
+        lastActiveAt: new Date().toISOString()
       };
       this.users.push(user);
+    } else {
+      user.lastActiveAt = new Date().toISOString();
     }
 
     this.currentUserId = user.id;
     localStorage.setItem(STORAGE_CURRENT_USER_ID, user.id);
     this.saveUsers();
+    cloudDatabase.syncPlayer(user);
+    return user;
+  }
+
+  public syncAuth0User(auth0User: {
+    sub?: string;
+    nickname?: string;
+    name?: string;
+    email?: string;
+    picture?: string;
+  }): UserProfile {
+    const id = auth0User.sub || `auth0-${Date.now().toString(36)}`;
+    const username = auth0User.nickname || auth0User.name || auth0User.email?.split('@')[0] || 'Игрок';
+
+    let user = this.users.find(u => u.id === id || u.username.toLowerCase() === username.toLowerCase());
+
+    if (!user) {
+      user = {
+        id,
+        username,
+        elo: 1200,
+        puzzlePoints: 0,
+        solvedPuzzleIds: [],
+        stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
+        authProvider: 'auth0',
+        email: auth0User.email,
+        avatarUrl: auth0User.picture,
+        createdAt: new Date().toISOString().slice(0, 10),
+        lastActiveAt: new Date().toISOString()
+      };
+      this.users.push(user);
+    } else {
+      user.id = id;
+      user.authProvider = 'auth0';
+      if (auth0User.picture) user.avatarUrl = auth0User.picture;
+      if (auth0User.email) user.email = auth0User.email;
+      user.lastActiveAt = new Date().toISOString();
+    }
+
+    this.currentUserId = user.id;
+    localStorage.setItem(STORAGE_CURRENT_USER_ID, user.id);
+    this.saveUsers();
+    cloudDatabase.syncPlayer(user);
     return user;
   }
 
@@ -176,8 +235,9 @@ class UserService {
   public recordMatchResult(
     botElo: number,
     result: 'win' | 'loss' | 'draw'
-  ): { eloChange: number; newElo: number; message: string } {
+  ): { eloChange: number; oldElo: number; newElo: number; message: string } {
     const user = this.getCurrentUser();
+    const oldElo = user.elo;
 
     // Standard Chess Elo K-factor
     const K = 32;
@@ -201,7 +261,11 @@ class UserService {
 
     user.stats.totalGames++;
     user.elo = Math.max(200, user.elo + delta);
+    user.lastActiveAt = new Date().toISOString();
     this.saveUsers();
+
+    // Persist to central cloud database
+    cloudDatabase.syncPlayer(user);
 
     let message = '';
     if (result === 'win') {
@@ -212,7 +276,7 @@ class UserService {
       message = `Ничья. 0 ELO (${user.elo})`;
     }
 
-    return { eloChange: delta, newElo: user.elo, message };
+    return { eloChange: delta, oldElo, newElo: user.elo, message };
   }
 
   /**
@@ -222,8 +286,9 @@ class UserService {
   public recordPuzzleSolved(
     puzzleId: string,
     puzzleRating: number
-  ): { pointsAwarded: number; isFirstTime: boolean; newTotalPoints: number } {
+  ): { pointsAwarded: number; oldTotalPoints: number; isFirstTime: boolean; newTotalPoints: number } {
     const user = this.getCurrentUser();
+    const oldTotalPoints = user.puzzlePoints;
     const isFirstTime = !user.solvedPuzzleIds.includes(puzzleId);
 
     // Calculate points based on puzzle difficulty rating
@@ -242,8 +307,13 @@ class UserService {
       user.puzzlePoints += pointsAwarded;
     }
 
+    user.lastActiveAt = new Date().toISOString();
     this.saveUsers();
-    return { pointsAwarded, isFirstTime, newTotalPoints: user.puzzlePoints };
+
+    // Persist to central cloud database
+    cloudDatabase.syncPlayer(user);
+
+    return { pointsAwarded, oldTotalPoints, isFirstTime, newTotalPoints: user.puzzlePoints };
   }
 
   public getEloLeaderboard(): UserProfile[] {

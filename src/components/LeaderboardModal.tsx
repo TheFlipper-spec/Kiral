@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { X, Trophy, Target, Award } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Trophy, Target, Award, RefreshCw, Cloud } from 'lucide-react';
 import { userService } from '../services/userService';
 import type { UserProfile } from '../services/userService';
+import { cloudDatabase } from '../services/cloudDatabase';
 
 interface LeaderboardModalProps {
   isOpen: boolean;
@@ -15,11 +16,34 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   currentUser
 }) => {
   const [activeTab, setActiveTab] = useState<'puzzles' | 'elo'>('puzzles');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [puzzlesLeaderboard, setPuzzlesLeaderboard] = useState<UserProfile[]>([]);
+  const [eloLeaderboard, setEloLeaderboard] = useState<UserProfile[]>([]);
+
+  const loadData = () => {
+    setPuzzlesLeaderboard(userService.getPuzzlesLeaderboard());
+    setEloLeaderboard(userService.getEloLeaderboard());
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      loadData();
+      // Auto-refresh from cloud on open
+      handleRefresh();
+    }
+  }, [isOpen]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await userService.refreshFromCloud();
+      loadData();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   if (!isOpen) return null;
-
-  const puzzlesLeaderboard = userService.getPuzzlesLeaderboard();
-  const eloLeaderboard = userService.getEloLeaderboard();
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-[2px] select-none animate-in fade-in duration-150">
@@ -31,13 +55,27 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
             <span className="font-mono text-sm font-bold tracking-tight text-[#EDEDED]">
               Таблица Лидеров
             </span>
+            <div className="flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded bg-[#181818] border border-[#262626] text-[10px] font-mono text-[#888888]">
+              <Cloud className={`w-3 h-3 ${cloudDatabase.isConnected ? 'text-emerald-400' : 'text-zinc-500'}`} />
+              <span className="hidden sm:inline">Облачная БД</span>
+            </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded text-[#777777] hover:text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors"
-          >
-            <X className="w-4 h-4" strokeWidth={1.5} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="p-1.5 rounded text-[#777777] hover:text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors disabled:opacity-50"
+              title="Обновить таблицу"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} strokeWidth={1.5} />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1 rounded text-[#777777] hover:text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors"
+            >
+              <X className="w-4 h-4" strokeWidth={1.5} />
+            </button>
+          </div>
         </div>
 
         {/* Tab Switcher */}
@@ -69,6 +107,12 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
         {/* Table Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-1">
           {activeTab === 'puzzles' ? (
+            puzzlesLeaderboard.length === 0 ? (
+              <div className="py-12 text-center text-xs font-mono text-zinc-500 space-y-2">
+                <p>В таблице пока нет игроков.</p>
+                <p className="text-[11px] text-zinc-600">Решайте шахматные задачи, чтобы заработать первые баллы!</p>
+              </div>
+            ) : (
             <div className="space-y-1.5">
               <div className="grid grid-cols-[36px_1fr_90px_70px] text-[10px] font-mono text-[#666666] uppercase px-3 py-1">
                 <span>#</span>
@@ -118,7 +162,14 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                 );
               })}
             </div>
+            )
           ) : (
+            eloLeaderboard.length === 0 ? (
+              <div className="py-12 text-center text-xs font-mono text-zinc-500 space-y-2">
+                <p>В таблице пока нет игроков.</p>
+                <p className="text-[11px] text-zinc-600">Сыграйте матч против бота Stockfish для получения рейтинга Эло!</p>
+              </div>
+            ) : (
             <div className="space-y-1.5">
               <div className="grid grid-cols-[36px_1fr_80px_90px] text-[10px] font-mono text-[#666666] uppercase px-3 py-1">
                 <span>#</span>
@@ -168,6 +219,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                 );
               })}
             </div>
+            )
           )}
         </div>
 
