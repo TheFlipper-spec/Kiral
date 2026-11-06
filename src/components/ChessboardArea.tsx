@@ -48,6 +48,7 @@ interface ChessboardAreaProps {
   gameOverMessage?: string | null;
   onRestartGame?: () => void;
   moveAccent?: MoveAccentInfo | null;
+  showEngineArrows?: boolean;
 }
 
 export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
@@ -72,7 +73,8 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   isAiThinking = false,
   gameOverMessage = null,
   onRestartGame,
-  moveAccent = null
+  moveAccent = null,
+  showEngineArrows = true
 }) => {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -147,9 +149,9 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     }
   };
 
-  // Best engine move arrow
+  // Best engine move arrow (hidden in 1v1 PvP mode)
   const customArrows: Array<{ startSquare: string; endSquare: string; color: string }> = [];
-  if (bestMoveUci && bestMoveUci.length >= 4) {
+  if (showEngineArrows && bestMoveUci && bestMoveUci.length >= 4) {
     const from = bestMoveUci.substring(0, 2);
     const to = bestMoveUci.substring(2, 4);
     if (from !== to) {

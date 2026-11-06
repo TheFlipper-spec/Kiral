@@ -13,11 +13,20 @@ import { stockfish } from './engine/stockfishService';
 import { sound } from './services/soundService';
 import { SAMPLE_GAMES } from './data/sampleGames';
 import { PUZZLES } from './data/puzzles';
+import { LeaderboardModal } from './components/LeaderboardModal';
+import { AuthModal } from './components/AuthModal';
+import { userService } from './services/userService';
+import type { UserProfile } from './services/userService';
 import { classifySingleMove, calculatePlayerAccuracy } from './engine/evalFormulas';
 import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES } from './types/chess';
 import type { GameReport, MoveAnalysis, MoveClassification, EngineEvaluation } from './types/chess';
 
 export const App: React.FC = () => {
+  // User profile & leaderboards
+  const [currentUser, setCurrentUser] = useState<UserProfile>(() => userService.getCurrentUser());
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false);
+  const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+
   // Game mode & AI settings
   const [gameMode, setGameMode] = useState<GameMode>('review');
   const [playerColor, setPlayerColor] = useState<'w' | 'b'>('w');
@@ -258,7 +267,25 @@ export const App: React.FC = () => {
             }
 
             if (chess.isGameOver()) {
-              setGameOverMessage(checkGameOverStatus(chess));
+              const over = checkGameOverStatus(chess);
+              if (gameMode === 'vs-ai') {
+                const botCfg =
+                  AI_DIFFICULTIES.find((d) => d.id === aiDifficultyId) || AI_DIFFICULTIES[1];
+                if (chess.isCheckmate()) {
+                  const matchRes = userService.recordMatchResult(botCfg.eloApprox, 'loss');
+                  setCurrentUser(userService.getCurrentUser());
+                  setGameOverMessage(`${over} • ${matchRes.message}`);
+                  sound.speak('Поражение. Снижение рейтинга');
+                } else if (chess.isDraw() || chess.isStalemate()) {
+                  const matchRes = userService.recordMatchResult(botCfg.eloApprox, 'draw');
+                  setCurrentUser(userService.getCurrentUser());
+                  setGameOverMessage(`${over} • ${matchRes.message}`);
+                } else {
+                  setGameOverMessage(over);
+                }
+              } else {
+                setGameOverMessage(over);
+              }
             }
 
             // Append AI move to report
@@ -395,7 +422,9 @@ export const App: React.FC = () => {
                 if (opponentStep + 1 >= activePuzzle.solutionMoves.length) {
                   setPuzzleStatus('solved');
                   setSolvedPuzzlesCount((c) => c + 1);
-                  sound.speak('Задача решена!');
+                  const pRes = userService.recordPuzzleSolved(activePuzzle.id, activePuzzle.rating);
+                  setCurrentUser(userService.getCurrentUser());
+                  sound.speak(`Задача решена! Плюс ${pRes.pointsAwarded} баллов.`);
                 }
               }
             } catch (err) {
@@ -405,7 +434,9 @@ export const App: React.FC = () => {
         } else {
           setPuzzleStatus('solved');
           setSolvedPuzzlesCount((c) => c + 1);
-          sound.speak('Задача решена!');
+          const pRes = userService.recordPuzzleSolved(activePuzzle.id, activePuzzle.rating);
+          setCurrentUser(userService.getCurrentUser());
+          sound.speak(`Задача решена! Плюс ${pRes.pointsAwarded} баллов.`);
         }
         return true;
       } else {
@@ -454,7 +485,24 @@ export const App: React.FC = () => {
 
     const overStatus = checkGameOverStatus(chess);
     if (overStatus) {
-      setGameOverMessage(overStatus);
+      if (gameMode === 'vs-ai') {
+        const botCfg =
+          AI_DIFFICULTIES.find((d) => d.id === aiDifficultyId) || AI_DIFFICULTIES[1];
+        if (chess.isCheckmate()) {
+          const matchRes = userService.recordMatchResult(botCfg.eloApprox, 'win');
+          setCurrentUser(userService.getCurrentUser());
+          setGameOverMessage(`${overStatus} • ${matchRes.message}`);
+          sound.speak('Победа! Вам начислен рейтинг Эло');
+        } else if (chess.isDraw() || chess.isStalemate()) {
+          const matchRes = userService.recordMatchResult(botCfg.eloApprox, 'draw');
+          setCurrentUser(userService.getCurrentUser());
+          setGameOverMessage(`${overStatus} • ${matchRes.message}`);
+        } else {
+          setGameOverMessage(overStatus);
+        }
+      } else {
+        setGameOverMessage(overStatus);
+      }
     } else {
       setGameOverMessage(null);
     }
@@ -839,6 +887,9 @@ export const App: React.FC = () => {
         isEngineReady={isEngineReady}
         gameTitle={gameTitle}
         isAiThinking={isAiThinking}
+        currentUser={currentUser}
+        onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
+        onOpenAuth={() => setIsAuthOpen(true)}
       />
 
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_420px] overflow-hidden">
@@ -869,6 +920,7 @@ export const App: React.FC = () => {
             gameOverMessage={gameOverMessage}
             onRestartGame={() => handleReset()}
             moveAccent={moveAccent}
+            showEngineArrows={gameMode !== 'pvp'}
           />
         </section>
 
@@ -907,6 +959,19 @@ export const App: React.FC = () => {
         onClose={() => setIsLoadModalOpen(false)}
         onLoadPgn={handleLoadNewPgn}
         currentDepth={analysisDepth}
+      />
+
+      <LeaderboardModal
+        isOpen={isLeaderboardOpen}
+        onClose={() => setIsLeaderboardOpen(false)}
+        currentUser={currentUser}
+      />
+
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        currentUser={currentUser}
+        onUserChanged={(u) => setCurrentUser(u)}
       />
     </div>
   );

@@ -1,6 +1,7 @@
 import React from 'react';
-import { Upload, RotateCcw, BookOpen, Swords, Users, Target } from 'lucide-react';
+import { Upload, RotateCcw, BookOpen, Swords, Users, Target, Trophy, User } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
+import type { UserProfile } from '../services/userService';
 
 export type GameMode = 'review' | 'vs-ai' | 'pvp' | 'puzzles';
 
@@ -16,6 +17,9 @@ interface HeaderProps {
   isEngineReady: boolean;
   gameTitle?: string;
   isAiThinking?: boolean;
+  currentUser?: UserProfile;
+  onOpenLeaderboard: () => void;
+  onOpenAuth: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,7 +33,10 @@ export const Header: React.FC<HeaderProps> = ({
   onReset,
   isEngineReady,
   gameTitle,
-  isAiThinking
+  isAiThinking,
+  currentUser,
+  onOpenLeaderboard,
+  onOpenAuth
 }) => {
   return (
     <header className="h-12 border-b border-[#262626] bg-[#0A0A0A] px-4 flex items-center justify-between select-none shrink-0 z-30">
@@ -220,6 +227,35 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Загрузить PGN</span>
             </button>
           </>
+        )}
+
+        <div className="h-4 w-[1px] bg-[#262626] mx-1" />
+
+        {/* Leaderboard button */}
+        <button
+          onClick={onOpenLeaderboard}
+          className="p-1.5 px-2 rounded text-[#CCCCCC] hover:text-[#f0c15c] hover:bg-[#1C1C1C] border border-[#262626] transition-colors flex items-center gap-1.5 text-xs font-mono"
+          title="Таблица лидеров (Топ по задачам и Эло)"
+        >
+          <Trophy className="w-3.5 h-3.5 text-[#f0c15c]" strokeWidth={1.5} />
+          <span className="hidden lg:inline">Топ</span>
+        </button>
+
+        {/* User profile button */}
+        {currentUser && (
+          <button
+            onClick={onOpenAuth}
+            className="px-2 py-1 rounded bg-[#161616] hover:bg-[#202020] border border-[#262626] transition-colors flex items-center gap-1.5 text-xs font-mono"
+            title="Профиль игрока и сохранение прогресса"
+          >
+            <User className="w-3.5 h-3.5 text-[#1baca6]" strokeWidth={1.5} />
+            <span className="font-semibold text-white truncate max-w-[80px] sm:max-w-[110px]">
+              {currentUser.username}
+            </span>
+            <span className="px-1 py-0.2 rounded bg-[#1baca6]/20 text-[#1baca6] font-bold text-[10px]">
+              {currentUser.elo}
+            </span>
+          </button>
         )}
       </div>
     </header>
