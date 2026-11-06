@@ -1,0 +1,915 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Chess, Move } from 'chess.js';
+import { Header } from './components/Header';
+import type { GameMode } from './components/Header';
+import { ChessboardArea } from './components/ChessboardArea';
+import type { MoveAccentInfo } from './components/ChessboardArea';
+import { AnalysisPanel } from './components/AnalysisPanel';
+import { PuzzlePanel } from './components/PuzzlePanel';
+import { LoadGameModal } from './components/LoadGameModal';
+import { gameAnalyzer, uciToSan } from './engine/gameAnalyzer';
+import type { AnalysisProgress } from './engine/gameAnalyzer';
+import { stockfish } from './engine/stockfishService';
+import { sound } from './services/soundService';
+import { SAMPLE_GAMES } from './data/sampleGames';
+import { PUZZLES } from './data/puzzles';
+import { classifySingleMove, calculatePlayerAccuracy } from './engine/evalFormulas';
+import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES } from './types/chess';
+import type { GameReport, MoveAnalysis, MoveClassification, EngineEvaluation } from './types/chess';
+
+export const App: React.FC = () => {
+  // Game mode & AI settings
+  const [gameMode, setGameMode] = useState<GameMode>('review');
+  const [playerColor, setPlayerColor] = useState<'w' | 'b'>('w');
+  const [aiDifficultyId, setAiDifficultyId] = useState<string>('casual');
+  const [aiDepth, setAiDepth] = useState<number>(4);
+  const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
+  const [gameOverMessage, setGameOverMessage] = useState<string | null>(null);
+  const [moveAccent, setMoveAccent] = useState<MoveAccentInfo | null>(null);
+  const moveAccentTimerRef = useRef<number | null>(null);
+
+  // Puzzle state
+  const [currentPuzzleIndex, setCurrentPuzzleIndex] = useState<number>(0);
+  const [puzzleStatus, setPuzzleStatus] = useState<'playing' | 'solved' | 'failed'>('playing');
+  const [puzzleStep, setPuzzleStep] = useState<number>(0);
+  const [solvedPuzzlesCount, setSolvedPuzzlesCount] = useState<number>(0);
+  const [totalAttemptedPuzzles, setTotalAttemptedPuzzles] = useState<number>(0);
+  const [puzzleDifficultyFilter, setPuzzleDifficultyFilter] = useState<'all' | 'easy' | 'medium' | 'hard'>('all');
+
+  // Board & Review state
+  const [currentPgn, setCurrentPgn] = useState<string>(SAMPLE_GAMES[0].pgn);
+  const [gameTitle, setGameTitle] = useState<string>(SAMPLE_GAMES[0].title);
+  const [fens, setFens] = useState<string[]>([]);
+  const [currentPly, setCurrentPly] = useState<number>(0);
+  const [report, setReport] = useState<GameReport | null>(null);
+
+  const [isFlipped, setIsFlipped] = useState<boolean>(false);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [progress, setProgress] = useState<AnalysisProgress | null>(null);
+  const [isEngineReady, setIsEngineReady] = useState<boolean>(false);
+  const [isLoadModalOpen, setIsLoadModalOpen] = useState<boolean>(false);
+  const [analysisDepth, setAnalysisDepth] = useState<number>(14);
+
+  const [isPreviewingLine, setIsPreviewingLine] = useState<boolean>(false);
+  const [previewFen, setPreviewFen] = useState<string | null>(null);
+
+  // References for async safety
+  const fensRef = useRef<string[]>(fens);
+  fensRef.current = fens;
+  const currentPlyRef = useRef<number>(currentPly);
+  currentPlyRef.current = currentPly;
+  const isAiThinkingRef = useRef<boolean>(isAiThinking);
+  isAiThinkingRef.current = isAiThinking;
+  const gameModeRef = useRef<GameMode>(gameMode);
+  gameModeRef.current = gameMode;
+
+  const checkGameOverStatus = (chessInstance: Chess): string | null => {
+    if (chessInstance.isCheckmate()) {
+      const winner = chessInstance.turn() === 'w' ? 'Черные' : 'Белые';
+      return `Мат! Победили ${winner}`;
+    }
+    if (chessInstance.isStalemate()) {
+      return 'Ничья: Пат';
+    }
+    if (chessInstance.isThreefoldRepetition()) {
+      return 'Ничья: Троекратное повторение';
+    }
+    if (chessInstance.isInsufficientMaterial()) {
+      return 'Ничья: Недостаточно материала';
+    }
+    if (chessInstance.isDraw()) {
+      return 'Ничья (правило 50 ходов)';
+    }
+    return null;
+  };
+
+  const loadPgnIntoState = useCallback((pgnString: string, title?: string) => {
+    try {
+      const chess = new Chess();
+      chess.loadPgn(pgnString);
+      const moves = chess.history({ verbose: true });
+
+      const replay = new Chess();
+      const generatedFens = [replay.fen()];
+      for (const m of moves) {
+        replay.move(m);
+        generatedFens.push(replay.fen());
+      }
+
+      setFens(generatedFens);
+      setCurrentPly(0);
+      setIsPlaying(false);
+      setIsPreviewingLine(false);
+      setPreviewFen(null);
+      setGameOverMessage(null);
+      if (title) setGameTitle(title);
+      return true;
+    } catch (err) {
+      console.error('Error parsing PGN:', err);
+      return false;
+    }
+  }, []);
+
+  const runAnalysis = useCallback(
+    async (pgnToAnalyze: string, depth = 14) => {
+      setIsAnalyzing(true);
+      setProgress({
+        currentPly: 0,
+        totalPlies: 0,
+        depth
+      });
+
+      try {
+        const fullReport = await gameAnalyzer.analyzePgn(pgnToAnalyze, depth, (prog) => {
+          if (gameModeRef.current !== 'review') return;
+          setProgress(prog);
+          if (prog.reportSoFar) {
+            setReport(prog.reportSoFar);
+          }
+        });
+        if (gameModeRef.current === 'review') {
+          setReport(fullReport);
+        }
+      } catch (err) {
+        console.error('Analysis failed:', err);
+      } finally {
+        setIsAnalyzing(false);
+      }
+    },
+    []
+  );
+
+  // Initialize
+  useEffect(() => {
+    loadPgnIntoState(SAMPLE_GAMES[0].pgn, SAMPLE_GAMES[0].title);
+
+    stockfish.init().then(() => {
+      setIsEngineReady(true);
+      runAnalysis(SAMPLE_GAMES[0].pgn, 14);
+    });
+
+    return () => {
+      stockfish.stop();
+    };
+  }, [loadPgnIntoState, runAnalysis]);
+
+  const playMoveAudio = useCallback(
+    (targetPly: number) => {
+      if (!soundEnabled || targetPly === 0 || !report || !report.moves[targetPly - 1]) return;
+      const move = report.moves[targetPly - 1];
+      if (move.classification === 'blunder') {
+        sound.playBlunder();
+      } else if (move.captured) {
+        sound.playCapture();
+      } else {
+        const fen = fens[targetPly];
+        if (fen && fen.includes('+')) {
+          sound.playCheck();
+        } else {
+          sound.playMove();
+        }
+      }
+    },
+    [soundEnabled, report, fens]
+  );
+
+  const handleSelectPly = useCallback(
+    (ply: number) => {
+      const clamped = Math.max(0, Math.min(fens.length - 1, ply));
+      setCurrentPly(clamped);
+      setIsPreviewingLine(false);
+      setPreviewFen(null);
+      playMoveAudio(clamped);
+    },
+    [fens.length, playMoveAudio]
+  );
+
+  // Autoplay timer for review mode
+  useEffect(() => {
+    let timer: number | null = null;
+    if (isPlaying) {
+      timer = window.setInterval(() => {
+        setCurrentPly((prev) => {
+          if (prev >= fens.length - 1) {
+            setIsPlaying(false);
+            return prev;
+          }
+          const next = prev + 1;
+          playMoveAudio(next);
+          return next;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isPlaying, fens.length, playMoveAudio]);
+
+  // AI Move Engine
+  const triggerAiMove = useCallback(
+    async (fenToRespondTo: string, currentPlyCount: number, existingEval?: EngineEvaluation) => {
+      const chess = new Chess(fenToRespondTo);
+      if (chess.isGameOver()) {
+        setGameOverMessage(checkGameOverStatus(chess));
+        return;
+      }
+
+      setIsAiThinking(true);
+      try {
+        const evalResult = existingEval || (await stockfish.evaluate(fenToRespondTo, aiDepth));
+        let bestMove = evalResult.bestMove;
+
+        // Fallback: If engine didn't return a move, pick legal move
+        if (!bestMove || bestMove.length < 4) {
+          const legalMoves = chess.moves({ verbose: true });
+          if (legalMoves.length > 0) {
+            const capture = legalMoves.find((m) => m.captured);
+            const chosen = capture || legalMoves[Math.floor(Math.random() * legalMoves.length)];
+            bestMove = `${chosen.from}${chosen.to}${chosen.promotion || ''}`;
+          }
+        }
+
+        if (bestMove && bestMove.length >= 4) {
+          const from = bestMove.substring(0, 2);
+          const to = bestMove.substring(2, 4);
+          const promotion = bestMove.length > 4 ? bestMove[4] : undefined;
+
+          // 1.5 second pause so player sees move accent and hears speech feedback
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+
+          const aiMoveResult = chess.move({ from, to, promotion });
+          if (aiMoveResult) {
+            const newFen = chess.fen();
+            const newFens = [...fensRef.current.slice(0, currentPlyCount + 1), newFen];
+            setFens(newFens);
+            const nextPly = currentPlyCount + 1;
+            setCurrentPly(nextPly);
+
+            if (aiMoveResult.captured) {
+              sound.playCapture();
+            } else if (newFen.includes('+') || chess.inCheck()) {
+              sound.playCheck();
+              sound.speak('Вам шах!');
+            } else {
+              sound.playMove();
+            }
+
+            if (chess.isGameOver()) {
+              setGameOverMessage(checkGameOverStatus(chess));
+            }
+
+            // Append AI move to report
+            const analysis: MoveAnalysis = {
+              ply: currentPlyCount,
+              moveNumber: Math.floor(currentPlyCount / 2) + 1,
+              turn: aiMoveResult.color,
+              san: aiMoveResult.san,
+              uci: bestMove,
+              from: aiMoveResult.from,
+              to: aiMoveResult.to,
+              piece: aiMoveResult.piece,
+              captured: aiMoveResult.captured,
+              fenBefore: fenToRespondTo,
+              fenAfter: newFen,
+              evalBefore: evalResult.cp,
+              evalAfter: evalResult.cp,
+              mateBefore: evalResult.mate,
+              mateAfter: evalResult.mate,
+              winPercentBefore: 50,
+              winPercentAfter: 50,
+              winPercentLoss: 0,
+              centipawnLoss: 0,
+              classification: 'best',
+              classificationReason: 'Ход Stockfish',
+              bestMoveUci: bestMove,
+              bestMoveSan: aiMoveResult.san,
+              bestLinePv: evalResult.pv,
+              depth: evalResult.depth
+            };
+
+            setReport((prev) => {
+              const existingMoves = prev ? [...prev.moves.slice(0, currentPlyCount)] : [];
+              existingMoves.push(analysis);
+
+              const counts = {
+                white: {} as Record<MoveClassification, number>,
+                black: {} as Record<MoveClassification, number>
+              };
+              (Object.keys(CLASSIFICATION_CONFIGS) as MoveClassification[]).forEach((k) => {
+                counts.white[k] = 0;
+                counts.black[k] = 0;
+              });
+              existingMoves.forEach((m) => {
+                if (m.turn === 'w') counts.white[m.classification]++;
+                else counts.black[m.classification]++;
+              });
+
+              return {
+                whiteAccuracy: calculatePlayerAccuracy(existingMoves, 'w'),
+                blackAccuracy: calculatePlayerAccuracy(existingMoves, 'b'),
+                whitePlayer: prev?.whitePlayer || (playerColor === 'w' ? 'Вы' : 'Stockfish'),
+                blackPlayer: prev?.blackPlayer || (playerColor === 'b' ? 'Вы' : 'Stockfish'),
+                event: 'Матч против Stockfish',
+                date: new Date().toISOString().slice(0, 10),
+                result: '*',
+                moves: existingMoves,
+                classificationSummary: counts
+              };
+            });
+          }
+        }
+      } catch (err) {
+        console.error('AI Turn error:', err);
+      } finally {
+        setIsAiThinking(false);
+      }
+    },
+    [aiDepth, playerColor]
+  );
+
+  // Player Move Handler
+  const handlePieceDrop = (sourceSquare: string, targetSquare: string): boolean => {
+    if (isAiThinkingRef.current) return false;
+
+    const currentBoardFen = previewFen || fens[currentPly] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    const chess = new Chess(currentBoardFen);
+
+    // In VS AI mode, restrict moves to player's turn
+    if (gameMode === 'vs-ai' && chess.turn() !== playerColor) {
+      return false;
+    }
+
+    // In Puzzle mode, handle puzzle step validation
+    if (gameMode === 'puzzles') {
+      const activePuzzle = PUZZLES[currentPuzzleIndex] || PUZZLES[0];
+      if (!activePuzzle || puzzleStatus === 'solved') return false;
+
+      let pMove: Move | null = null;
+      try {
+        pMove = chess.move({
+          from: sourceSquare,
+          to: targetSquare,
+          promotion: 'q'
+        });
+      } catch {
+        return false;
+      }
+      if (!pMove) return false;
+
+      const playedUci = `${pMove.from}${pMove.to}${pMove.promotion || ''}`;
+      const expectedUci = activePuzzle.solutionMoves[puzzleStep];
+
+      if (playedUci === expectedUci) {
+        const nextFen = chess.fen();
+        const nextPlies = [...fens.slice(0, currentPly + 1), nextFen];
+        setFens(nextPlies);
+        setCurrentPly(nextPlies.length - 1);
+
+        if (pMove.captured) sound.playCapture();
+        else if (nextFen.includes('+')) sound.playCheck();
+        else sound.playMove();
+
+        const opponentStep = puzzleStep + 1;
+        if (opponentStep < activePuzzle.solutionMoves.length) {
+          setPuzzleStep(opponentStep + 1);
+          setTimeout(() => {
+            try {
+              const replyUci = activePuzzle.solutionMoves[opponentStep];
+              const replyChess = new Chess(nextFen);
+              const repResult = replyChess.move({
+                from: replyUci.substring(0, 2),
+                to: replyUci.substring(2, 4),
+                promotion: replyUci.length > 4 ? replyUci[4] : undefined
+              });
+              if (repResult) {
+                const repFen = replyChess.fen();
+                setFens((prev) => [...prev, repFen]);
+                setCurrentPly((prev) => prev + 1);
+                if (repResult.captured) sound.playCapture();
+                else if (repFen.includes('+')) sound.playCheck();
+                else sound.playMove();
+
+                if (opponentStep + 1 >= activePuzzle.solutionMoves.length) {
+                  setPuzzleStatus('solved');
+                  setSolvedPuzzlesCount((c) => c + 1);
+                  sound.speak('Задача решена!');
+                }
+              }
+            } catch (err) {
+              console.error(err);
+            }
+          }, 450);
+        } else {
+          setPuzzleStatus('solved');
+          setSolvedPuzzlesCount((c) => c + 1);
+          sound.speak('Задача решена!');
+        }
+        return true;
+      } else {
+        setPuzzleStatus('failed');
+        sound.playBlunder();
+        sound.speak('Неверный ход');
+        return false;
+      }
+    }
+
+    let moveResult: Move | null = null;
+    try {
+      moveResult = chess.move({
+        from: sourceSquare,
+        to: targetSquare,
+        promotion: 'q'
+      });
+    } catch {
+      return false;
+    }
+
+    if (!moveResult) return false;
+
+    // Cancel running review
+    if (isAnalyzing) {
+      gameAnalyzer.cancel();
+      setIsAnalyzing(false);
+    }
+
+    const newFen = chess.fen();
+    const newFens = [...fens.slice(0, currentPly + 1), newFen];
+    setFens(newFens);
+
+    const nextPly = currentPly + 1;
+    setCurrentPly(nextPly);
+    setIsPreviewingLine(false);
+    setPreviewFen(null);
+
+    if (moveResult.captured) {
+      sound.playCapture();
+    } else if (newFen.includes('+')) {
+      sound.playCheck();
+    } else {
+      sound.playMove();
+    }
+
+    const overStatus = checkGameOverStatus(chess);
+    if (overStatus) {
+      setGameOverMessage(overStatus);
+    } else {
+      setGameOverMessage(null);
+    }
+
+    const plyIndex = currentPly;
+    const fenBefore = currentBoardFen;
+    const fenAfter = newFen;
+    const moveSan = moveResult.san;
+    const moveUci = `${moveResult.from}${moveResult.to}${moveResult.promotion || ''}`;
+    const turn = moveResult.color;
+    const piece = moveResult.piece;
+    const captured = moveResult.captured;
+
+    const currentMoveObj = currentPly > 0 && report?.moves ? report.moves[currentPly - 1] : undefined;
+    const prevEval = currentMoveObj ? currentMoveObj.evalAfter : 0;
+    const prevMate = currentMoveObj ? currentMoveObj.mateAfter : null;
+    const prevBestUci = currentMoveObj?.bestMoveUci || moveUci;
+
+    const evalDepth = gameMode === 'vs-ai' ? aiDepth : 12;
+
+    // Real-time evaluation of player move
+    stockfish.evaluate(fenAfter, evalDepth).then((evalResult) => {
+      const classResult = classifySingleMove({
+        ply: plyIndex,
+        turn,
+        san: moveSan,
+        uci: moveUci,
+        piece,
+        captured,
+        fenBefore,
+        fenAfter,
+        evalBefore: prevEval,
+        evalAfter: evalResult.cp,
+        mateBefore: prevMate,
+        mateAfter: evalResult.mate,
+        bestMoveUci: prevBestUci
+      });
+
+      const analysis: MoveAnalysis = {
+        ply: plyIndex,
+        moveNumber: Math.floor(plyIndex / 2) + 1,
+        turn,
+        san: moveSan,
+        uci: moveUci,
+        from: moveResult.from,
+        to: moveResult.to,
+        piece,
+        captured,
+        fenBefore,
+        fenAfter,
+        evalBefore: prevEval,
+        evalAfter: evalResult.cp,
+        mateBefore: prevMate,
+        mateAfter: evalResult.mate,
+        winPercentBefore: classResult.winBefore,
+        winPercentAfter: classResult.winAfter,
+        winPercentLoss: classResult.winLoss,
+        centipawnLoss: classResult.cpLoss,
+        classification: classResult.classification,
+        classificationReason: classResult.reason,
+        bestMoveUci: evalResult.bestMove,
+        bestMoveSan: uciToSan(fenAfter, evalResult.bestMove),
+        bestLinePv: evalResult.pv,
+        depth: evalResult.depth
+      };
+
+      setReport((prev) => {
+        const existingMoves = prev ? [...prev.moves.slice(0, plyIndex)] : [];
+        existingMoves.push(analysis);
+
+        const counts = {
+          white: {} as Record<MoveClassification, number>,
+          black: {} as Record<MoveClassification, number>
+        };
+        (Object.keys(CLASSIFICATION_CONFIGS) as MoveClassification[]).forEach((k) => {
+          counts.white[k] = 0;
+          counts.black[k] = 0;
+        });
+        existingMoves.forEach((m) => {
+          if (m.turn === 'w') counts.white[m.classification]++;
+          else counts.black[m.classification]++;
+        });
+
+        return {
+          whiteAccuracy: calculatePlayerAccuracy(existingMoves, 'w'),
+          blackAccuracy: calculatePlayerAccuracy(existingMoves, 'b'),
+          whitePlayer: prev?.whitePlayer || (gameMode === 'vs-ai' ? (playerColor === 'w' ? 'Вы' : 'Stockfish') : 'Белые'),
+          blackPlayer: prev?.blackPlayer || (gameMode === 'vs-ai' ? (playerColor === 'b' ? 'Вы' : 'Stockfish') : 'Черные'),
+          event: gameMode === 'vs-ai' ? 'Матч против Stockfish' : prev?.event || 'Интерактивный разбор',
+          date: new Date().toISOString().slice(0, 10),
+          result: '*',
+          moves: existingMoves,
+          classificationSummary: counts
+        };
+      });
+
+      // 1.5s Move Status Accent & Voice announcement
+      const isCheck = chess.inCheck();
+      const meta = CLASSIFICATION_CONFIGS[classResult.classification];
+      setMoveAccent({
+        classification: classResult.classification,
+        nameRu: meta.nameRu,
+        reason: classResult.reason,
+        isCheck,
+        san: moveSan
+      });
+
+      if (moveAccentTimerRef.current) clearTimeout(moveAccentTimerRef.current);
+      moveAccentTimerRef.current = window.setTimeout(() => {
+        setMoveAccent(null);
+      }, 1500);
+
+      // Voice synthesis via Web Speech API
+      let voiceAnnouncement = meta.nameRu;
+      if (isCheck) {
+        voiceAnnouncement += ', Шах!';
+      }
+      sound.speak(voiceAnnouncement);
+
+      // In vs-ai mode, trigger AI counter-move
+      if (gameMode === 'vs-ai' && !chess.isGameOver()) {
+        triggerAiMove(newFen, nextPly, evalResult);
+      }
+    });
+
+    return true;
+  };
+
+  // Start game vs AI
+  const startVsAiGame = useCallback(
+    (side: 'w' | 'b') => {
+      gameAnalyzer.cancel();
+      stockfish.clearQueue();
+      const cfg = AI_DIFFICULTIES.find((d) => d.id === aiDifficultyId) || AI_DIFFICULTIES[1];
+      stockfish.setSkillLevel(cfg.skillLevel);
+      setIsAnalyzing(false);
+      setIsPlaying(false);
+      setGameOverMessage(null);
+      setIsPreviewingLine(false);
+      setPreviewFen(null);
+
+      const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      setFens([startFen]);
+      setCurrentPly(0);
+      setPlayerColor(side);
+      setIsFlipped(side === 'b');
+
+      const counts = {
+        white: {} as Record<MoveClassification, number>,
+        black: {} as Record<MoveClassification, number>
+      };
+      (Object.keys(CLASSIFICATION_CONFIGS) as MoveClassification[]).forEach((k) => {
+        counts.white[k] = 0;
+        counts.black[k] = 0;
+      });
+
+      setReport({
+        whiteAccuracy: 100,
+        blackAccuracy: 100,
+        whitePlayer: side === 'w' ? 'Вы' : 'Stockfish',
+        blackPlayer: side === 'b' ? 'Вы' : 'Stockfish',
+        event: 'Матч против Stockfish',
+        date: new Date().toISOString().slice(0, 10),
+        result: '*',
+        moves: [],
+        classificationSummary: counts
+      });
+
+      // If user is playing as Black, AI plays White's first move
+      if (side === 'b') {
+        setTimeout(() => {
+          triggerAiMove(startFen, 0);
+        }, 300);
+      }
+    },
+    [triggerAiMove, aiDifficultyId]
+  );
+
+  // Start 1v1 PvP Game
+  const startPvpGame = useCallback(() => {
+    gameAnalyzer.cancel();
+    stockfish.clearQueue();
+    setIsAnalyzing(false);
+    setIsPlaying(false);
+    setGameOverMessage(null);
+    setIsPreviewingLine(false);
+    setPreviewFen(null);
+
+    const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    setFens([startFen]);
+    setCurrentPly(0);
+    setIsFlipped(false);
+
+    const counts = {
+      white: {} as Record<MoveClassification, number>,
+      black: {} as Record<MoveClassification, number>
+    };
+    (Object.keys(CLASSIFICATION_CONFIGS) as MoveClassification[]).forEach((k) => {
+      counts.white[k] = 0;
+      counts.black[k] = 0;
+    });
+
+    setReport({
+      whiteAccuracy: 100,
+      blackAccuracy: 100,
+      whitePlayer: 'Белые',
+      blackPlayer: 'Черные',
+      event: 'Партия 1 на 1',
+      date: new Date().toISOString().slice(0, 10),
+      result: '*',
+      moves: [],
+      classificationSummary: counts
+    });
+  }, []);
+
+  // Start Puzzles Mode
+  const startPuzzlesMode = useCallback(
+    (indexToLoad = 0) => {
+      gameAnalyzer.cancel();
+      stockfish.clearQueue();
+      setIsAnalyzing(false);
+      setIsPlaying(false);
+      setGameOverMessage(null);
+      setIsPreviewingLine(false);
+      setPreviewFen(null);
+
+      const targetIdx = Math.max(0, Math.min(PUZZLES.length - 1, indexToLoad));
+      setCurrentPuzzleIndex(targetIdx);
+      const puzzle = PUZZLES[targetIdx] || PUZZLES[0];
+      setFens([puzzle.fen]);
+      setCurrentPly(0);
+      setIsFlipped(puzzle.turn === 'b');
+      setPuzzleStatus('playing');
+      setPuzzleStep(0);
+      setTotalAttemptedPuzzles((c) => c + 1);
+    },
+    []
+  );
+
+  const handleNextPuzzle = useCallback(() => {
+    const nextIdx = (currentPuzzleIndex + 1) % PUZZLES.length;
+    startPuzzlesMode(nextIdx);
+  }, [currentPuzzleIndex, startPuzzlesMode]);
+
+  const handleRandomPuzzle = useCallback(() => {
+    const filtered = PUZZLES.filter(
+      (p) => puzzleDifficultyFilter === 'all' || p.difficulty === puzzleDifficultyFilter
+    );
+    const pool = filtered.length > 0 ? filtered : PUZZLES;
+    const randomItem = pool[Math.floor(Math.random() * pool.length)];
+    const randomIdx = PUZZLES.findIndex((p) => p.id === randomItem.id);
+    startPuzzlesMode(randomIdx >= 0 ? randomIdx : 0);
+  }, [puzzleDifficultyFilter, startPuzzlesMode]);
+
+  const handleRetryPuzzle = useCallback(() => {
+    const puzzle = PUZZLES[currentPuzzleIndex] || PUZZLES[0];
+    setFens([puzzle.fen]);
+    setCurrentPly(0);
+    setPuzzleStatus('playing');
+    setPuzzleStep(0);
+  }, [currentPuzzleIndex]);
+
+  const handleShowSolution = useCallback(() => {
+    const puzzle = PUZZLES[currentPuzzleIndex] || PUZZLES[0];
+    try {
+      const replay = new Chess(puzzle.fen);
+      const solutionFens = [puzzle.fen];
+      for (const uci of puzzle.solutionMoves) {
+        replay.move({
+          from: uci.substring(0, 2),
+          to: uci.substring(2, 4),
+          promotion: uci.length > 4 ? uci[4] : undefined
+        });
+        solutionFens.push(replay.fen());
+      }
+      setFens(solutionFens);
+      setCurrentPly(solutionFens.length - 1);
+      setPuzzleStatus('failed');
+      sound.speak('Вот решение задачи');
+    } catch (err) {
+      console.error(err);
+    }
+  }, [currentPuzzleIndex]);
+
+  const handleChangeAiDifficulty = (diffId: string) => {
+    setAiDifficultyId(diffId);
+    const cfg = AI_DIFFICULTIES.find((d) => d.id === diffId);
+    if (cfg) {
+      setAiDepth(cfg.depth);
+      stockfish.setSkillLevel(cfg.skillLevel);
+    }
+  };
+
+  const handleChangeMode = (newMode: GameMode) => {
+    setGameMode(newMode);
+    if (newMode === 'vs-ai') {
+      startVsAiGame(playerColor);
+    } else if (newMode === 'pvp') {
+      startPvpGame();
+    } else if (newMode === 'puzzles') {
+      startPuzzlesMode(currentPuzzleIndex);
+    } else {
+      gameAnalyzer.cancel();
+      stockfish.clearQueue();
+      setGameOverMessage(null);
+      loadPgnIntoState(currentPgn, gameTitle);
+    }
+  };
+
+  const handleTogglePreviewLine = () => {
+    if (isPreviewingLine) {
+      setIsPreviewingLine(false);
+      setPreviewFen(null);
+      return;
+    }
+
+    if (currentPly > 0 && report && report.moves[currentPly - 1]) {
+      const move = report.moves[currentPly - 1];
+      if (move.bestMoveUci) {
+        try {
+          const tempChess = new Chess(move.fenBefore);
+          tempChess.move({
+            from: move.bestMoveUci.substring(0, 2),
+            to: move.bestMoveUci.substring(2, 4),
+            promotion: move.bestMoveUci.length > 4 ? move.bestMoveUci.substring(4, 5) : undefined
+          });
+          setPreviewFen(tempChess.fen());
+          setIsPreviewingLine(true);
+        } catch {
+          setIsPreviewingLine(false);
+        }
+      }
+    }
+  };
+
+  const handleLoadNewPgn = (newPgn: string, depth: number) => {
+    setCurrentPgn(newPgn);
+    setAnalysisDepth(depth);
+    setReport(null);
+    setGameMode('review');
+    loadPgnIntoState(newPgn, 'Пользовательская партия');
+    runAnalysis(newPgn, depth);
+  };
+
+  const handleReset = () => {
+    if (gameMode === 'vs-ai') {
+      startVsAiGame(playerColor);
+    } else if (gameMode === 'pvp') {
+      startPvpGame();
+    } else if (gameMode === 'puzzles') {
+      handleRandomPuzzle();
+    } else {
+      gameAnalyzer.cancel();
+      stockfish.clearQueue();
+      setReport(null);
+      setGameOverMessage(null);
+      loadPgnIntoState(currentPgn);
+    }
+  };
+
+  const currentMove: MoveAnalysis | undefined =
+    currentPly > 0 && report?.moves ? report.moves[currentPly - 1] : undefined;
+
+  const currentFen = previewFen || fens[currentPly] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const evalCp = currentMove ? currentMove.evalAfter : 0;
+  const mate = currentMove ? currentMove.mateAfter : null;
+
+  return (
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#0A0A0A] text-[#EDEDED] font-sans">
+      <Header
+        gameMode={gameMode}
+        onChangeMode={handleChangeMode}
+        playerColor={playerColor}
+        onChangePlayerColor={(color) => {
+          setPlayerColor(color);
+          startVsAiGame(color);
+        }}
+        aiDifficultyId={aiDifficultyId}
+        onChangeAiDifficulty={handleChangeAiDifficulty}
+        onOpenLoadModal={() => setIsLoadModalOpen(true)}
+        onReset={handleReset}
+        isEngineReady={isEngineReady}
+        gameTitle={gameTitle}
+        isAiThinking={isAiThinking}
+      />
+
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_420px] overflow-hidden">
+        <section className="h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A]">
+          <ChessboardArea
+            fen={currentFen}
+            isFlipped={isFlipped}
+            onFlip={() => setIsFlipped((prev) => !prev)}
+            currentMove={currentMove}
+            currentPly={currentPly}
+            totalPlies={Math.max(0, fens.length - 1)}
+            onGoToStart={() => handleSelectPly(0)}
+            onGoToPrev={() => handleSelectPly(currentPly - 1)}
+            onGoToNext={() => handleSelectPly(currentPly + 1)}
+            onGoToEnd={() => handleSelectPly(fens.length - 1)}
+            isPlaying={isPlaying}
+            onTogglePlay={() => setIsPlaying((prev) => !prev)}
+            soundEnabled={soundEnabled}
+            onToggleSound={() => {
+              setSoundEnabled(!soundEnabled);
+              sound.enabled = !soundEnabled;
+            }}
+            evalCp={evalCp}
+            mate={mate}
+            bestMoveUci={currentMove?.bestMoveUci}
+            onPieceDrop={handlePieceDrop}
+            isAiThinking={isAiThinking}
+            gameOverMessage={gameOverMessage}
+            onRestartGame={() => handleReset()}
+            moveAccent={moveAccent}
+          />
+        </section>
+
+        <section className="h-full overflow-hidden">
+          {gameMode === 'puzzles' ? (
+            <PuzzlePanel
+              puzzle={PUZZLES[currentPuzzleIndex] || PUZZLES[0]}
+              status={puzzleStatus}
+              currentStep={puzzleStep}
+              onNextPuzzle={handleNextPuzzle}
+              onRandomPuzzle={handleRandomPuzzle}
+              onRetry={handleRetryPuzzle}
+              onShowSolution={handleShowSolution}
+              solvedCount={solvedPuzzlesCount}
+              totalAttempted={totalAttemptedPuzzles}
+              filterDifficulty={puzzleDifficultyFilter}
+              onChangeFilter={setPuzzleDifficultyFilter}
+            />
+          ) : (
+            <AnalysisPanel
+              report={report}
+              currentPly={currentPly}
+              onSelectPly={handleSelectPly}
+              progress={progress}
+              isAnalyzing={isAnalyzing}
+              onCancelAnalysis={() => gameAnalyzer.cancel()}
+              isPreviewingLine={isPreviewingLine}
+              onTogglePreviewLine={handleTogglePreviewLine}
+            />
+          )}
+        </section>
+      </main>
+
+      <LoadGameModal
+        isOpen={isLoadModalOpen}
+        onClose={() => setIsLoadModalOpen(false)}
+        onLoadPgn={handleLoadNewPgn}
+        currentDepth={analysisDepth}
+      />
+    </div>
+  );
+};
+
+export default App;
