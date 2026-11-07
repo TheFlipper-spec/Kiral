@@ -3,7 +3,7 @@ import { Chess, Move } from 'chess.js';
 import { Header } from './components/Header';
 import type { GameMode } from './components/Header';
 import { ChessboardArea } from './components/ChessboardArea';
-import type { MoveAccentInfo } from './components/ChessboardArea';
+import type { MoveAccentInfo, BoardPlayerBarInfo } from './components/ChessboardArea';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { PuzzlePanel } from './components/PuzzlePanel';
 import { LoadGameModal } from './components/LoadGameModal';
@@ -29,10 +29,14 @@ import { classifySingleMove, calculatePlayerAccuracy } from './engine/evalFormul
 import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES } from './types/chess';
 import type { GameReport, MoveAnalysis, MoveClassification, EngineEvaluation } from './types/chess';
 
+const STORAGE_ACTIVE_RANKED_MATCH = 'kiral_active_ranked_match_v1';
+const INITIAL_RANKED_TIME_SEC = 600; // 10 minutes per player
+
 export const App: React.FC = () => {
   // User profile & leaderboards
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => userService.getCurrentUser());
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false);
+  const [leaderboardTab, setLeaderboardTab] = useState<'elo' | 'puzzles' | 'friends'>('elo');
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [scoreDelta, setScoreDelta] = useState<ScoreDeltaData | null>(null);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(() => cloudDatabase.isConnected);
@@ -54,11 +58,17 @@ export const App: React.FC = () => {
   const [moveAccent, setMoveAccent] = useState<MoveAccentInfo | null>(null);
   const moveAccentTimerRef = useRef<number | null>(null);
 
-  // Ranked & Multiplayer state
+  // Ranked & Multiplayer state + 10-minute Chess Clocks
   const [isMatchmakingOpen, setIsMatchmakingOpen] = useState<boolean>(false);
   const [selectedProfileUser, setSelectedProfileUser] = useState<UserProfile | null>(null);
   const [activeRankedSession, setActiveRankedSession] = useState<RankedMatchSession | null>(null);
   const [incomingChallenge, setIncomingChallenge] = useState<DirectChallengePayload | null>(null);
+  const [whiteTime, setWhiteTime] = useState<number>(INITIAL_RANKED_TIME_SEC);
+  const [blackTime, setBlackTime] = useState<number>(INITIAL_RANKED_TIME_SEC);
+  const whiteTimeRef = useRef<number>(whiteTime);
+  whiteTimeRef.current = whiteTime;
+  const blackTimeRef = useRef<number>(blackTime);
+  blackTimeRef.current = blackTime;
   const activeRankedSessionRef = useRef<RankedMatchSession | null>(null);
   activeRankedSessionRef.current = activeRankedSession;
 
@@ -433,12 +443,18 @@ export const App: React.FC = () => {
     const chess = new Chess(currentBoardFen);
 
     // In VS AI mode, restrict moves to player's turn
-    if (gameMode === 'vs-ai' && chess.turn() !== playerColor) {
+    if (gameMode === 'vs-ai' && (chess.turn() !== playerColor || Boolean(gameOverMessage))) {
       return false;
     }
 
-    // In Ranked mode, restrict moves to player's turn
-    if (gameMode === 'ranked' && chess.turn() !== playerColor) {
+    // In Ranked mode, restrict moves to active session, latest ply, and player's turn
+    if (
+      gameMode === 'ranked' &&
+      (!activeRankedSession ||
+        Boolean(gameOverMessage) ||
+        currentPly !== fens.length - 1 ||
+        chess.turn() !== playerColor)
+    ) {
       return false;
     }
 
@@ -584,7 +600,9 @@ export const App: React.FC = () => {
         to: targetSquare,
         promotion: moveResult.promotion,
         fen: newFen,
-        san: moveResult.san
+        san: moveResult.san,
+        whiteTime: whiteTimeRef.current,
+        blackTime: blackTimeRef.current
       });
     }
 
@@ -953,6 +971,12 @@ export const App: React.FC = () => {
         promotion: (movePayload.promotion as any) || undefined
       });
       if (res) {
+        if (typeof movePayload.whiteTime === 'number') {
+          setWhiteTime(movePayload.whiteTime);
+        }
+        if (typeof movePayload.blackTime === 'number') {
+          setBlackTime(movePayload.blackTime);
+        }
         const nextFen = chess.fen();
         const updatedFens = [...fensRef.current.slice(0, currentPlyRef.current + 1), nextFen];
         setFens(updatedFens);
@@ -1026,6 +1050,235 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  const handleOpponentTimeout = useCallback(() => {
+    if (activeRankedSessionRef.current) {
+      const opp = activeRankedSessionRef.current.opponent;
+      const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'win');
+      setCurrentUser(userService.getCurrentUser());
+      setGameOverMessage(`У соперника ${opp.username} истекло время! • ${matchRes.message}`);
+      sound.playVictory();
+      sound.speak(`Время соперника вышло! Победа!`);
+      setScoreDelta({
+        id: `elo-${Date.now()}`,
+        type: 'elo',
+        title: `Победа по времени над ${opp.username}`,
+        delta: matchRes.eloChange,
+        oldValue: matchRes.oldElo,
+        newValue: matchRes.newElo,
+        unit: 'ELO',
+        isPositive: true
+      });
+    }
+  }, []);
+
+  const handleResignCurrentGame = useCallback(() => {
+    if (gameOverMessage) return;
+    if (gameMode === 'ranked' && activeRankedSession) {
+      if (activeRankedSession.isOnlinePvP) {
+        multiplayerService.sendResign();
+      }
+      const opp = activeRankedSession.opponent;
+      const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'loss');
+      setCurrentUser(userService.getCurrentUser());
+      setGameOverMessage(`Вы сдались • ${matchRes.message}`);
+      sound.playDefeat();
+      setScoreDelta({
+        id: `elo-${Date.now()}`,
+        type: 'elo',
+        title: `Поражение (сдача)`,
+        delta: matchRes.eloChange,
+        oldValue: matchRes.oldElo,
+        newValue: matchRes.newElo,
+        unit: 'ELO',
+        isPositive: false
+      });
+    } else if (gameMode === 'vs-ai') {
+      userService.recordCasualMatch('loss');
+      setCurrentUser(userService.getCurrentUser());
+      setGameOverMessage('Вы сдались в тренировочном матче');
+      sound.playDefeat();
+    }
+  }, [gameOverMessage, gameMode, activeRankedSession]);
+
+  // 10-Minute Chess Clock Countdown for Competitive Online PvP
+  useEffect(() => {
+    if (gameMode !== 'ranked' || !activeRankedSession?.isOnlinePvP || Boolean(gameOverMessage)) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      const latestFen =
+        fensRef.current[fensRef.current.length - 1] ||
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      let turn: 'w' | 'b' = 'w';
+      try {
+        turn = new Chess(latestFen).turn();
+      } catch {
+        turn = 'w';
+      }
+
+      if (turn === 'w') {
+        const nextW = Math.max(0, whiteTimeRef.current - 1);
+        setWhiteTime(nextW);
+        if (nextW <= 0 && activeRankedSessionRef.current) {
+          clearInterval(timer);
+          const sess = activeRankedSessionRef.current;
+          if (sess.myColor === 'w') {
+            multiplayerService.sendTimeout();
+            const matchRes = userService.recordCompetitiveMatchResult(sess.opponent.elo, 'loss');
+            setCurrentUser(userService.getCurrentUser());
+            setGameOverMessage(`Ваше время (10:00) истекло! Поражение • ${matchRes.message}`);
+            sound.playDefeat();
+            sound.speak('Время вышло. Вы проиграли.');
+            setScoreDelta({
+              id: `elo-${Date.now()}`,
+              type: 'elo',
+              title: 'Поражение по времени',
+              delta: matchRes.eloChange,
+              oldValue: matchRes.oldElo,
+              newValue: matchRes.newElo,
+              unit: 'ELO',
+              isPositive: false
+            });
+          } else {
+            handleOpponentTimeout();
+          }
+        }
+      } else {
+        const nextB = Math.max(0, blackTimeRef.current - 1);
+        setBlackTime(nextB);
+        if (nextB <= 0 && activeRankedSessionRef.current) {
+          clearInterval(timer);
+          const sess = activeRankedSessionRef.current;
+          if (sess.myColor === 'b') {
+            multiplayerService.sendTimeout();
+            const matchRes = userService.recordCompetitiveMatchResult(sess.opponent.elo, 'loss');
+            setCurrentUser(userService.getCurrentUser());
+            setGameOverMessage(`Ваше время (10:00) истекло! Поражение • ${matchRes.message}`);
+            sound.playDefeat();
+            sound.speak('Время вышло. Вы проиграли.');
+            setScoreDelta({
+              id: `elo-${Date.now()}`,
+              type: 'elo',
+              title: 'Поражение по времени',
+              delta: matchRes.eloChange,
+              oldValue: matchRes.oldElo,
+              newValue: matchRes.newElo,
+              unit: 'ELO',
+              isPositive: false
+            });
+          } else {
+            handleOpponentTimeout();
+          }
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [gameMode, activeRankedSession, gameOverMessage, handleOpponentTimeout]);
+
+  // Persist active Ranked Match to localStorage so page refresh continues the game
+  useEffect(() => {
+    if (gameMode === 'ranked' && activeRankedSession) {
+      if (gameOverMessage) {
+        localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+      } else {
+        try {
+          localStorage.setItem(
+            STORAGE_ACTIVE_RANKED_MATCH,
+            JSON.stringify({
+              session: activeRankedSession,
+              fens,
+              currentPly,
+              whiteTime,
+              blackTime,
+              lastTickTimestamp: Date.now(),
+              report
+            })
+          );
+        } catch {
+          // Ignore quota errors
+        }
+      }
+    }
+  }, [gameMode, activeRankedSession, fens, currentPly, whiteTime, blackTime, gameOverMessage, report]);
+
+  // Restore active Ranked Match on page reload
+  const hasRestoredRankedRef = useRef(false);
+  useEffect(() => {
+    if (hasRestoredRankedRef.current) return;
+    hasRestoredRankedRef.current = true;
+    try {
+      const raw = localStorage.getItem(STORAGE_ACTIVE_RANKED_MATCH);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved || !saved.session || !Array.isArray(saved.fens) || saved.fens.length === 0) return;
+
+      const session: RankedMatchSession = saved.session;
+      const restoredFens: string[] = saved.fens;
+      const latestFen = restoredFens[restoredFens.length - 1];
+      const chess = new Chess(latestFen);
+      if (chess.isGameOver()) {
+        localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+        return;
+      }
+
+      gameAnalyzer.cancel();
+      stockfish.clearQueue();
+      setIsAnalyzing(false);
+      setIsPlaying(false);
+      setGameOverMessage(null);
+      setActiveRankedSession(session);
+      multiplayerService.setCurrentSession(session);
+      setGameMode('ranked');
+      setPlayerColor(session.myColor);
+      setIsFlipped(session.myColor === 'b');
+      setFens(restoredFens);
+      setCurrentPly(restoredFens.length - 1);
+      if (saved.report) {
+        setReport(saved.report);
+      }
+
+      if (session.isOnlinePvP) {
+        const elapsedSec = Math.max(
+          0,
+          Math.floor((Date.now() - (saved.lastTickTimestamp || Date.now())) / 1000)
+        );
+        const turn = chess.turn();
+        const wRestored =
+          typeof saved.whiteTime === 'number' ? saved.whiteTime : INITIAL_RANKED_TIME_SEC;
+        const bRestored =
+          typeof saved.blackTime === 'number' ? saved.blackTime : INITIAL_RANKED_TIME_SEC;
+
+        setWhiteTime(turn === 'w' ? Math.max(1, wRestored - elapsedSec) : wRestored);
+        setBlackTime(turn === 'b' ? Math.max(1, bRestored - elapsedSec) : bRestored);
+
+        multiplayerService.joinGameRoom(
+          session.roomId,
+          handleOpponentOnlineMove,
+          handleOpponentResign,
+          () => {},
+          handleOpponentTimeout
+        );
+      } else {
+        if (session.opponent.aiDifficultyId) {
+          const cfg =
+            AI_DIFFICULTIES.find((d) => d.id === session.opponent.aiDifficultyId) ||
+            AI_DIFFICULTIES[1];
+          setAiDepth(cfg.depth);
+          stockfish.setSkillLevel(cfg.skillLevel);
+        }
+        if (chess.turn() !== session.myColor) {
+          setTimeout(() => {
+            triggerAiMove(latestFen, restoredFens.length - 1);
+          }, 800);
+        }
+      }
+    } catch (err) {
+      console.warn('Could not restore ranked session:', err);
+    }
+  }, [handleOpponentOnlineMove, handleOpponentResign, handleOpponentTimeout, triggerAiMove]);
+
   const handleStartRankedSession = useCallback((session: RankedMatchSession) => {
     gameAnalyzer.cancel();
     stockfish.clearQueue();
@@ -1035,7 +1288,10 @@ export const App: React.FC = () => {
     setIsPreviewingLine(false);
     setPreviewFen(null);
 
+    setWhiteTime(INITIAL_RANKED_TIME_SEC);
+    setBlackTime(INITIAL_RANKED_TIME_SEC);
     setActiveRankedSession(session);
+    multiplayerService.setCurrentSession(session);
     setGameMode('ranked');
     setPlayerColor(session.myColor);
     setIsFlipped(session.myColor === 'b');
@@ -1061,7 +1317,7 @@ export const App: React.FC = () => {
       blackAccuracy: 100,
       whitePlayer: whiteName,
       blackPlayer: blackName,
-      event: session.isOnlinePvP ? 'Онлайн матч на рейтинг' : 'Рейтинговый матч против ИИ',
+      event: session.isOnlinePvP ? 'Онлайн матч на рейтинг (10 мин)' : 'Рейтинговый матч против ИИ',
       date: new Date().toISOString().slice(0, 10),
       result: '*',
       moves: [],
@@ -1073,7 +1329,8 @@ export const App: React.FC = () => {
         session.roomId,
         handleOpponentOnlineMove,
         handleOpponentResign,
-        () => {}
+        () => {},
+        handleOpponentTimeout
       );
     } else {
       if (session.opponent.aiDifficultyId) {
@@ -1087,7 +1344,7 @@ export const App: React.FC = () => {
         }, 600);
       }
     }
-  }, [currentUser, handleOpponentOnlineMove, handleOpponentResign, triggerAiMove]);
+  }, [currentUser, handleOpponentOnlineMove, handleOpponentResign, handleOpponentTimeout, triggerAiMove]);
 
   const handleAcceptIncomingChallenge = async (chal: DirectChallengePayload) => {
     setIncomingChallenge(null);
@@ -1119,7 +1376,8 @@ export const App: React.FC = () => {
         roomId,
         handleOpponentOnlineMove,
         handleOpponentResign,
-        () => {}
+        () => {},
+        handleOpponentTimeout
       );
       handleStartRankedSession(session);
     } catch (err) {
@@ -1130,7 +1388,9 @@ export const App: React.FC = () => {
   const handleChangeMode = (newMode: GameMode) => {
     setGameMode(newMode);
     if (newMode === 'ranked') {
-      setIsMatchmakingOpen(true);
+      if (!activeRankedSession || Boolean(gameOverMessage)) {
+        setIsMatchmakingOpen(true);
+      }
     } else if (newMode === 'vs-ai') {
       startVsAiGame(playerColor);
     } else if (newMode === 'pvp') {
@@ -1202,8 +1462,136 @@ export const App: React.FC = () => {
     currentPly > 0 && report?.moves ? report.moves[currentPly - 1] : undefined;
 
   const currentFen = previewFen || fens[currentPly] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-  const evalCp = currentMove ? currentMove.evalAfter : 0;
-  const mate = currentMove ? currentMove.mateAfter : null;
+  const hideEngineHints = (gameMode === 'pvp' || gameMode === 'ranked') && !gameOverMessage;
+  const evalCp = hideEngineHints ? 0 : currentMove ? currentMove.evalAfter : 0;
+  const mate = hideEngineHints ? null : currentMove ? currentMove.mateAfter : null;
+
+  const currentTurnColor: 'w' | 'b' = (() => {
+    const latestFen = fens[fens.length - 1] || currentFen;
+    return (latestFen.split(' ')[1] as 'w' | 'b') || 'w';
+  })();
+
+  const isClockActive = gameMode === 'ranked' && Boolean(activeRankedSession?.isOnlinePvP);
+  const myColor: 'w' | 'b' = gameMode === 'ranked' && activeRankedSession
+    ? activeRankedSession.myColor
+    : gameMode === 'vs-ai'
+      ? playerColor
+      : isFlipped
+        ? 'b'
+        : 'w';
+  const opponentColor: 'w' | 'b' = myColor === 'w' ? 'b' : 'w';
+
+  const currentAiDiff = AI_DIFFICULTIES.find((d) => d.id === aiDifficultyId) || AI_DIFFICULTIES[0];
+
+  const opponentBarInfo: BoardPlayerBarInfo = (() => {
+    if (gameMode === 'ranked' && activeRankedSession) {
+      return {
+        id: activeRankedSession.opponent.id,
+        name: activeRankedSession.opponent.username,
+        elo: activeRankedSession.opponent.elo,
+        isAi: activeRankedSession.opponent.isAi,
+        color: opponentColor,
+        timeRemaining: isClockActive ? (opponentColor === 'w' ? whiteTime : blackTime) : null,
+        isTurn: !gameOverMessage && currentTurnColor === opponentColor
+      };
+    }
+    if (gameMode === 'vs-ai') {
+      return {
+        id: `ai-${currentAiDiff.id}`,
+        name: `Stockfish (${currentAiDiff.name})`,
+        elo: currentAiDiff.eloApprox,
+        isAi: true,
+        color: opponentColor,
+        timeRemaining: null,
+        isTurn: !gameOverMessage && currentTurnColor === opponentColor
+      };
+    }
+    if (gameMode === 'pvp') {
+      return {
+        name: opponentColor === 'w' ? 'Игрок 1 (Белые)' : 'Игрок 2 (Черные)',
+        isAi: false,
+        color: opponentColor,
+        timeRemaining: null,
+        isTurn: !gameOverMessage && currentTurnColor === opponentColor
+      };
+    }
+    if (gameMode === 'puzzles') {
+      const currentPuzzle = PUZZLES[currentPuzzleIndex] || PUZZLES[0];
+      return {
+        name: `Задача: ${currentPuzzle.title}`,
+        elo: currentPuzzle.rating,
+        isAi: true,
+        color: opponentColor,
+        timeRemaining: null,
+        isTurn: false
+      };
+    }
+    return {
+      name: opponentColor === 'w' ? (report?.whitePlayer || 'Белые') : (report?.blackPlayer || 'Черные'),
+      isAi: false,
+      color: opponentColor,
+      timeRemaining: null,
+      isTurn: currentTurnColor === opponentColor
+    };
+  })();
+
+  const playerBarInfo: BoardPlayerBarInfo = (() => {
+    if (gameMode === 'pvp') {
+      return {
+        name: myColor === 'w' ? 'Игрок 1 (Белые)' : 'Игрок 2 (Черные)',
+        isAi: false,
+        color: myColor,
+        timeRemaining: null,
+        isTurn: !gameOverMessage && currentTurnColor === myColor
+      };
+    }
+    return {
+      id: currentUser.id,
+      name: currentUser.username,
+      elo: currentUser.elo,
+      isAi: false,
+      color: myColor,
+      timeRemaining: isClockActive ? (myColor === 'w' ? whiteTime : blackTime) : null,
+      isTurn: !gameOverMessage && currentTurnColor === myColor
+    };
+  })();
+
+  const isOpponentFriend = Boolean(
+    opponentBarInfo.id && !opponentBarInfo.isAi && (currentUser.friends || []).includes(opponentBarInfo.id)
+  );
+
+  const handleToggleOpponentFriend = () => {
+    if (!opponentBarInfo.id || opponentBarInfo.isAi) return;
+    const isNowFriend = userService.toggleFriend(opponentBarInfo.id);
+    setCurrentUser({ ...userService.getCurrentUser() });
+    if (isNowFriend) {
+      sound.playMove();
+    }
+  };
+
+  const handleOpenOpponentProfile = () => {
+    if (!opponentBarInfo.id || opponentBarInfo.isAi) {
+      setLeaderboardTab('friends');
+      setIsLeaderboardOpen(true);
+      return;
+    }
+    const found = userService.getUserById(opponentBarInfo.id);
+    if (found) {
+      setSelectedProfileUser(found);
+    } else {
+      setSelectedProfileUser({
+        id: opponentBarInfo.id,
+        username: opponentBarInfo.name,
+        isRegistered: true,
+        elo: opponentBarInfo.elo || 100,
+        puzzlePoints: 0,
+        solvedPuzzleIds: [],
+        friends: [],
+        stats: { wins: 0, losses: 0, draws: 0, totalGames: 1 },
+        createdAt: new Date().toISOString()
+      });
+    }
+  };
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#0A0A0A] text-[#EDEDED] font-sans">
@@ -1225,7 +1613,15 @@ export const App: React.FC = () => {
         currentUser={currentUser}
         scoreDelta={scoreDelta}
         isCloudConnected={isCloudConnected}
-        onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
+        onOpenLeaderboard={() => {
+          setLeaderboardTab('elo');
+          setIsLeaderboardOpen(true);
+        }}
+        onOpenFriends={() => {
+          setLeaderboardTab('friends');
+          setIsLeaderboardOpen(true);
+        }}
+        onOpenMyProfile={() => setSelectedProfileUser(currentUser)}
         onOpenAuth={() => setIsAuthOpen(true)}
       />
 
@@ -1285,7 +1681,15 @@ export const App: React.FC = () => {
             gameOverMessage={gameOverMessage}
             onRestartGame={() => handleReset()}
             moveAccent={moveAccent}
-            showEngineArrows={gameMode !== 'pvp' && gameMode !== 'ranked'}
+            showEngineArrows={!hideEngineHints}
+            topPlayer={opponentBarInfo}
+            bottomPlayer={playerBarInfo}
+            isOpponentFriend={isOpponentFriend}
+            onToggleOpponentFriend={handleToggleOpponentFriend}
+            onOpenTopPlayerProfile={handleOpenOpponentProfile}
+            onOpenBottomPlayerProfile={() => setSelectedProfileUser(currentUser)}
+            canResign={(gameMode === 'ranked' || gameMode === 'vs-ai') && !gameOverMessage && fens.length > 1}
+            onResignGame={handleResignCurrentGame}
           />
         </section>
 
@@ -1314,6 +1718,7 @@ export const App: React.FC = () => {
               onCancelAnalysis={() => gameAnalyzer.cancel()}
               isPreviewingLine={isPreviewingLine}
               onTogglePreviewLine={handleTogglePreviewLine}
+              hideEngineHints={hideEngineHints}
             />
           )}
         </section>
@@ -1331,6 +1736,9 @@ export const App: React.FC = () => {
         onClose={() => setIsLeaderboardOpen(false)}
         currentUser={currentUser}
         onSelectUser={(u) => setSelectedProfileUser(u)}
+        initialTab={leaderboardTab}
+        onChallengePlayer={handleChallengePlayer}
+        onUserChanged={(u) => setCurrentUser(u)}
       />
 
       <AuthModal

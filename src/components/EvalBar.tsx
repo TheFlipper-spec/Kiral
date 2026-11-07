@@ -42,7 +42,7 @@ export const EvalBar: React.FC<EvalBarProps> = ({ evalCp, mate, flipped = false 
 
   return (
     <div
-      className="w-6 h-full bg-[#121212] border border-[#262626] rounded-sm flex flex-col justify-between relative overflow-hidden select-none shrink-0"
+      className="w-5 sm:w-6 self-stretch bg-[#121212] border border-[#262626] rounded-sm flex flex-col justify-between relative overflow-hidden select-none shrink-0"
       title={`Оценка позиции: ${evalText}`}
     >
       {/* Top portion */}

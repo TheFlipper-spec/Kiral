@@ -16,6 +16,7 @@ interface AnalysisPanelProps {
   onCancelAnalysis: () => void;
   isPreviewingLine: boolean;
   onTogglePreviewLine: () => void;
+  hideEngineHints?: boolean;
 }
 
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
@@ -26,7 +27,8 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   isAnalyzing,
   onCancelAnalysis,
   isPreviewingLine,
-  onTogglePreviewLine
+  onTogglePreviewLine,
+  hideEngineHints = false
 }) => {
   const [activeTab, setActiveTab] = useState<'summary' | 'moves'>('moves');
 
@@ -103,11 +105,18 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
       </div>
 
       {/* Engine Line Box */}
-      <EngineLineBox
-        currentMove={currentMove}
-        isPreviewingLine={isPreviewingLine}
-        onTogglePreviewLine={onTogglePreviewLine}
-      />
+      {hideEngineHints ? (
+        <div className="px-3 py-2 border-b border-[#262626] bg-[#111111] text-[11px] font-mono text-[#777777] flex items-center justify-between shrink-0">
+          <span>Подсказки движка скрыты во время партии</span>
+          <span className="text-[#f0c15c] font-semibold">Честная игра</span>
+        </div>
+      ) : (
+        <EngineLineBox
+          currentMove={currentMove}
+          isPreviewingLine={isPreviewingLine}
+          onTogglePreviewLine={onTogglePreviewLine}
+        />
+      )}
 
       {/* Main Tab Content */}
       <div className="flex-1 overflow-hidden flex flex-col">

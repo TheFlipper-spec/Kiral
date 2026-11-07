@@ -15,7 +15,13 @@ import {
   Volume2,
   VolumeX,
   RotateCw,
-  Eye
+  Eye,
+  Clock,
+  UserPlus,
+  UserCheck,
+  User,
+  Flag,
+  Bot
 } from 'lucide-react';
 
 export interface MoveAccentInfo {
@@ -24,6 +30,16 @@ export interface MoveAccentInfo {
   reason: string;
   isCheck: boolean;
   san?: string;
+}
+
+export interface BoardPlayerBarInfo {
+  id?: string;
+  name: string;
+  elo?: number;
+  isAi?: boolean;
+  color: 'w' | 'b';
+  timeRemaining?: number | null;
+  isTurn?: boolean;
 }
 
 interface ChessboardAreaProps {
@@ -50,6 +66,14 @@ interface ChessboardAreaProps {
   onRestartGame?: () => void;
   moveAccent?: MoveAccentInfo | null;
   showEngineArrows?: boolean;
+  topPlayer?: BoardPlayerBarInfo;
+  bottomPlayer?: BoardPlayerBarInfo;
+  isOpponentFriend?: boolean;
+  onToggleOpponentFriend?: () => void;
+  onOpenTopPlayerProfile?: () => void;
+  onOpenBottomPlayerProfile?: () => void;
+  canResign?: boolean;
+  onResignGame?: () => void;
 }
 
 export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
@@ -75,7 +99,15 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   gameOverMessage = null,
   onRestartGame,
   moveAccent = null,
-  showEngineArrows = true
+  showEngineArrows = true,
+  topPlayer,
+  bottomPlayer,
+  isOpponentFriend = false,
+  onToggleOpponentFriend,
+  onOpenTopPlayerProfile,
+  onOpenBottomPlayerProfile,
+  canResign = false,
+  onResignGame
 }) => {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -271,11 +303,88 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onGoToPrev, onGoToNext, onGoToStart, onGoToEnd, onTogglePlay, onFlip]);
 
+  const formatClock = (seconds: number) => {
+    const clamped = Math.max(0, Math.floor(seconds));
+    const mins = Math.floor(clamped / 60);
+    const secs = clamped % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center p-3 select-none h-full">
-      {/* Board & Eval Bar Container */}
-      <div className="flex items-center gap-3 w-full max-w-[540px] aspect-square relative">
-        {/* Vertical Eval Bar (24px) */}
+    <div className="flex flex-col items-center justify-center px-2 py-1 sm:p-2 select-none h-full w-full overflow-hidden">
+      {/* Top Player / Opponent Bar */}
+      {topPlayer && (
+        <div className="w-full max-w-[330px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[270px] mb-1.5 flex items-center justify-between px-2.5 py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0">
+          <div className="flex items-center gap-2 truncate">
+            <span
+              className={`w-3 h-3 rounded-sm border shrink-0 ${
+                topPlayer.color === 'w'
+                  ? 'bg-[#E5E5E5] border-white'
+                  : 'bg-[#262626] border-[#555555]'
+              }`}
+            />
+            {topPlayer.isAi ? (
+              <Bot className="w-3.5 h-3.5 text-[#1baca6] shrink-0" />
+            ) : (
+              <User className="w-3.5 h-3.5 text-[#888888] shrink-0" />
+            )}
+            <span className="font-semibold text-[#EDEDED] truncate max-w-[110px] sm:max-w-[160px]">
+              {topPlayer.name}
+            </span>
+            {typeof topPlayer.elo === 'number' && (
+              <span className="px-1.5 py-0.2 rounded bg-[#1C1C1C] border border-[#303030] text-[#1baca6] text-[10px] font-bold shrink-0">
+                {topPlayer.elo}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!topPlayer.isAi && onToggleOpponentFriend && (
+              <button
+                onClick={onToggleOpponentFriend}
+                className={`px-1.5 py-0.5 rounded border text-[10px] flex items-center gap-1 transition-colors ${
+                  isOpponentFriend
+                    ? 'bg-emerald-950/60 border-emerald-700/60 text-emerald-300'
+                    : 'bg-[#1C1C1C] border-[#333333] text-[#1baca6] hover:bg-[#262626]'
+                }`}
+                title={isOpponentFriend ? 'В друзьях' : 'Добавить соперника в друзья'}
+              >
+                {isOpponentFriend ? <UserCheck className="w-3 h-3" /> : <UserPlus className="w-3 h-3" />}
+                <span className="hidden sm:inline">{isOpponentFriend ? 'Друг' : '+Друг'}</span>
+              </button>
+            )}
+            {!topPlayer.isAi && onOpenTopPlayerProfile && (
+              <button
+                onClick={onOpenTopPlayerProfile}
+                className="px-1.5 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-[#CCCCCC] text-[10px] flex items-center gap-1 transition-colors"
+                title="Посмотреть профиль и статистику соперника"
+              >
+                <User className="w-3 h-3 text-[#1baca6]" />
+                <span className="hidden sm:inline">Профиль</span>
+              </button>
+            )}
+            {typeof topPlayer.timeRemaining === 'number' && (
+              <div
+                className={`px-2 py-0.5 rounded border font-mono text-xs font-bold flex items-center gap-1 transition-colors ${
+                  topPlayer.timeRemaining < 60
+                    ? 'bg-rose-950/80 border-rose-600 text-rose-300 animate-pulse'
+                    : topPlayer.isTurn
+                    ? 'bg-[#1baca6]/20 border-[#1baca6] text-white'
+                    : 'bg-[#181818] border-[#2C2C2C] text-[#777777]'
+                }`}
+                title="Оставшееся время соперника"
+              >
+                <Clock className="w-3 h-3" />
+                <span>{formatClock(topPlayer.timeRemaining)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Board & Eval Bar Container (pixel-aligned height) */}
+      <div className="flex items-stretch gap-2 sm:gap-2.5 w-full max-w-[330px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[270px] relative shrink-0">
+        {/* Vertical Eval Bar */}
         <EvalBar evalCp={evalCp} mate={mate} flipped={isFlipped} />
 
         {/* Board wrapper */}
@@ -472,10 +581,72 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
         </div>
       </div>
 
+      {/* Bottom Player Bar */}
+      {bottomPlayer && (
+        <div className="w-full max-w-[330px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[270px] mt-1.5 flex items-center justify-between px-2.5 py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0">
+          <div className="flex items-center gap-2 truncate">
+            <span
+              className={`w-3 h-3 rounded-sm border shrink-0 ${
+                bottomPlayer.color === 'w'
+                  ? 'bg-[#E5E5E5] border-white'
+                  : 'bg-[#262626] border-[#555555]'
+              }`}
+            />
+            <User className="w-3.5 h-3.5 text-[#1baca6] shrink-0" />
+            <span className="font-semibold text-[#EDEDED] truncate max-w-[110px] sm:max-w-[160px]">
+              {bottomPlayer.name}
+            </span>
+            {typeof bottomPlayer.elo === 'number' && (
+              <span className="px-1.5 py-0.2 rounded bg-[#1baca6]/15 border border-[#1baca6]/30 text-[#1baca6] text-[10px] font-bold shrink-0">
+                {bottomPlayer.elo}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onOpenBottomPlayerProfile && (
+              <button
+                onClick={onOpenBottomPlayerProfile}
+                className="px-1.5 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-[#CCCCCC] text-[10px] flex items-center gap-1 transition-colors"
+                title="Открыть мой профиль и статистику побед/поражений"
+              >
+                <User className="w-3 h-3 text-[#1baca6]" />
+                <span>Профиль</span>
+              </button>
+            )}
+            {canResign && onResignGame && (
+              <button
+                onClick={onResignGame}
+                className="px-1.5 py-0.5 rounded bg-rose-950/50 hover:bg-rose-900/70 border border-rose-800/60 text-rose-300 text-[10px] flex items-center gap-1 transition-colors"
+                title="Сдаться в текущей партии"
+              >
+                <Flag className="w-3 h-3" />
+                <span className="hidden sm:inline">Сдаться</span>
+              </button>
+            )}
+            {typeof bottomPlayer.timeRemaining === 'number' && (
+              <div
+                className={`px-2 py-0.5 rounded border font-mono text-xs font-bold flex items-center gap-1 transition-colors ${
+                  bottomPlayer.timeRemaining < 60
+                    ? 'bg-rose-950/80 border-rose-600 text-rose-300 animate-pulse'
+                    : bottomPlayer.isTurn
+                    ? 'bg-[#1baca6]/25 border-[#1baca6] text-white'
+                    : 'bg-[#181818] border-[#2C2C2C] text-[#777777]'
+                }`}
+                title="Ваше оставшееся время (10 минут на партию)"
+              >
+                <Clock className="w-3 h-3" />
+                <span>{formatClock(bottomPlayer.timeRemaining)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Navigation & Controls Bar */}
-      <div className="w-full max-w-[540px] mt-3 flex items-center justify-between px-2 py-1.5 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED]">
+      <div className="w-full max-w-[330px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[270px] mt-1.5 flex items-center justify-between px-2 py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0">
         {/* Left: Move Counter or AI Thinking Status */}
-        <div className="text-xs font-mono text-[#888888] flex items-center gap-1.5 min-w-[90px]">
+        <div className="text-xs font-mono text-[#888888] flex items-center gap-1.5 min-w-[50px] sm:min-w-[80px]">
           {isAiThinking ? (
             <span className="flex items-center gap-1.5 text-[#1baca6] font-medium animate-pulse">
               <span className="w-1.5 h-1.5 rounded-full bg-[#1baca6]" />
@@ -487,7 +658,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
         </div>
 
         {/* Center: Playback Buttons */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 sm:gap-1">
           <button
             onClick={onGoToStart}
             disabled={currentPly <= 0}
@@ -535,7 +706,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
         </div>
 
         {/* Right: Board options (Flip & Sound) */}
-        <div className="flex items-center gap-1 min-w-[90px] justify-end">
+        <div className="flex items-center gap-0.5 sm:gap-1 min-w-[50px] sm:min-w-[80px] justify-end">
           <button
             onClick={onToggleSound}
             className={`p-1.5 rounded transition-colors ${

@@ -22,6 +22,8 @@ export interface MovePayload {
   promotion?: string;
   fen: string;
   san?: string;
+  whiteTime?: number;
+  blackTime?: number;
 }
 
 export interface DirectChallengePayload {
@@ -327,7 +329,8 @@ class MultiplayerService {
     roomId: string,
     onMove: OnOpponentMove,
     onResign: OnOpponentResign,
-    onDraw: OnOpponentDraw
+    onDraw: OnOpponentDraw,
+    onTimeout?: () => void
   ) {
     this.leaveGameRoom();
 
@@ -341,6 +344,10 @@ class MultiplayerService {
       })
       .on('broadcast', { event: 'resign' }, () => {
         onResign();
+      })
+      .on('broadcast', { event: 'timeout' }, () => {
+        if (onTimeout) onTimeout();
+        else onResign();
       })
       .on('broadcast', { event: 'draw' }, () => {
         onDraw();
@@ -371,6 +378,22 @@ class MultiplayerService {
       event: 'resign',
       payload: { playerId: this.myPlayer?.id }
     });
+  }
+
+  /**
+   * Sends timeout notification to opponent when local clock reaches 0
+   */
+  public async sendTimeout() {
+    if (!this.gameChannel) return;
+    await this.gameChannel.send({
+      type: 'broadcast',
+      event: 'timeout',
+      payload: { playerId: this.myPlayer?.id }
+    });
+  }
+
+  public setCurrentSession(session: RankedMatchSession | null) {
+    this.currentSession = session;
   }
 
   public leaveGameRoom() {
