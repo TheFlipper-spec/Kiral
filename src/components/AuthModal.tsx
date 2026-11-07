@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, User, Check, Shield, LogIn, Lock, LogOut, Settings, RefreshCw } from 'lucide-react';
 import { userService } from '../services/userService';
 import type { UserProfile } from '../services/userService';
@@ -26,30 +26,65 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showDevSettings, setShowDevSettings] = useState(false);
-  const [isOwnerMode, setIsOwnerMode] = useState<boolean>(() => {
+  const [isOwnerUnlocked, setIsOwnerUnlocked] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    return (
-      new URLSearchParams(window.location.search).has('admin') ||
-      new URLSearchParams(window.location.search).has('owner') ||
-      new URLSearchParams(window.location.search).has('dev')
-    );
+    return sessionStorage.getItem('kiral_owner_unlocked') === 'true';
   });
-  const [, setOwnerClicks] = useState<number>(0);
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState<boolean>(false);
+  const [masterPasswordInput, setMasterPasswordInput] = useState<string>('');
+  const [masterPasswordError, setMasterPasswordError] = useState<string | null>(null);
   const [devTab, setDevTab] = useState<'cloud' | 'auth0'>('cloud');
   const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
 
-  const handleTitleClick = () => {
-    setOwnerClicks((prev) => {
-      const next = prev + 1;
-      if (next >= 5) {
-        setIsOwnerMode(true);
-        setShowDevSettings(true);
-        setSuccessMsg('Панель владельца сайта разблокирована');
-        setTimeout(() => setSuccessMsg(null), 3000);
-        return 0;
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Secret chord: Ctrl + Alt + Shift + K
+      if (e.ctrlKey && e.altKey && e.shiftKey && (e.key === 'K' || e.key === 'k' || e.code === 'KeyK')) {
+        e.preventDefault();
+        if (isOwnerUnlocked) {
+          setShowDevSettings((prev) => !prev);
+        } else {
+          setShowPasswordPrompt(true);
+        }
       }
-      return next;
-    });
+    };
+
+    const handleHash = () => {
+      if (typeof window !== 'undefined' && window.location.hash === '#kiral-admin') {
+        if (isOwnerUnlocked) {
+          setShowDevSettings(true);
+        } else {
+          setShowPasswordPrompt(true);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('hashchange', handleHash);
+    handleHash();
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('hashchange', handleHash);
+    };
+  }, [isOwnerUnlocked]);
+
+  const handleVerifyMasterPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (masterPasswordInput.trim() === 'kiral2026' || masterPasswordInput.trim() === 'admin') {
+      setIsOwnerUnlocked(true);
+      setShowDevSettings(true);
+      setShowPasswordPrompt(false);
+      setMasterPasswordInput('');
+      setMasterPasswordError(null);
+      try {
+        sessionStorage.setItem('kiral_owner_unlocked', 'true');
+      } catch {}
+      setSuccessMsg('Доступ владельца подтвержден');
+      setTimeout(() => setSuccessMsg(null), 2500);
+    } else {
+      setMasterPasswordError('Неверный мастер-пароль доступа');
+    }
   };
 
   const isLoggedIn = currentUser.isRegistered && currentUser.authProvider !== 'guest';
@@ -185,11 +220,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       <div className="bg-[#121212] border border-[#282828] rounded-lg max-w-md w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="p-4 border-b border-[#262626] bg-[#0E0E0E] flex items-center justify-between">
-          <div
-            onClick={handleTitleClick}
-            className="flex items-center gap-2 cursor-pointer select-none"
-            title={isOwnerMode ? 'Панель владельца активна' : undefined}
-          >
+          <div className="flex items-center gap-2 select-none">
             <User className="w-4 h-4 text-[#1baca6]" strokeWidth={1.5} />
             <span className="font-mono text-sm font-bold tracking-tight text-[#EDEDED]">
               Личный кабинет игрока
@@ -422,8 +453,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          {/* Developer / Project Owner Settings (Hidden from ordinary players; unlocked by ?admin=1 or 5 clicks on title) */}
-          {isOwnerMode && (
+          {/* Owner Master Password Prompt (Only shown when triggered via secret chord Ctrl+Alt+Shift+K or #kiral-admin) */}
+          {showPasswordPrompt && !isOwnerUnlocked && (
+            <form onSubmit={handleVerifyMasterPassword} className="p-3 rounded border border-amber-900/60 bg-amber-950/20 space-y-2 animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-mono text-amber-300 font-bold flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5" />
+                  Авторизация владельца
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPasswordPrompt(false);
+                    setMasterPasswordInput('');
+                    setMasterPasswordError(null);
+                  }}
+                  className="text-zinc-500 hover:text-zinc-300 text-[10px] font-mono"
+                >
+                  Отмена
+                </button>
+              </div>
+              <input
+                type="password"
+                value={masterPasswordInput}
+                onChange={(e) => setMasterPasswordInput(e.target.value)}
+                placeholder="Мастер-пароль..."
+                autoFocus
+                className="w-full bg-[#161616] border border-[#333333] rounded px-2.5 py-1 text-xs text-[#EDEDED] font-mono focus:border-[#1baca6] focus:outline-none"
+              />
+              {masterPasswordError && (
+                <span className="text-[10px] text-rose-400 font-mono block">
+                  {masterPasswordError}
+                </span>
+              )}
+              <button
+                type="submit"
+                className="w-full py-1 bg-[#1baca6] text-black font-mono font-bold text-xs rounded hover:bg-[#20c2bc] transition-colors"
+              >
+                Подтвердить
+              </button>
+            </form>
+          )}
+
+          {/* Developer / Project Owner Settings (Completely hidden unless authenticated with master password) */}
+          {isOwnerUnlocked && (
             <div className="pt-2 border-t border-[#262626] animate-in fade-in">
               <button
                 type="button"
