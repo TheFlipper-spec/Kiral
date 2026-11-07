@@ -116,8 +116,14 @@ class CloudDatabaseService {
         }
 
         if (data && Array.isArray(data)) {
-          return data
-            .filter((row) => row.auth_provider !== 'guest' && row.username !== 'Игрок')
+          const mapped = data
+            .filter(
+              (row) =>
+                row.auth_provider !== 'guest' &&
+                row.username !== 'Игрок' &&
+                typeof row.username === 'string' &&
+                !row.username.startsWith('__')
+            )
             .map((row) => {
               let parsedAvatar: string | undefined = undefined;
               let parsedPassword: string | undefined = undefined;
@@ -160,6 +166,25 @@ class CloudDatabaseService {
                 lastActiveAt: row.last_active_at
               };
             });
+
+          // Deduplicate by username: keep authoritative record with most games / latest activity
+          const dedup = new Map<string, UserProfile>();
+          for (const p of mapped) {
+            const key = p.username.toLowerCase();
+            const existing = dedup.get(key);
+            if (!existing) {
+              dedup.set(key, p);
+            } else {
+              const pGames = p.stats?.totalGames || 0;
+              const exGames = existing.stats?.totalGames || 0;
+              const pTime = p.lastActiveAt ? new Date(p.lastActiveAt).getTime() : 0;
+              const exTime = existing.lastActiveAt ? new Date(existing.lastActiveAt).getTime() : 0;
+              if (pGames > exGames || (pGames === exGames && pTime >= exTime)) {
+                dedup.set(key, p);
+              }
+            }
+          }
+          return Array.from(dedup.values());
         }
       } catch (err) {
         console.warn('Supabase query failed:', err);
@@ -208,11 +233,13 @@ class CloudDatabaseService {
     if (!idOrUsername) return null;
     if (this.supabase && this.config.provider === 'supabase') {
       try {
-        const canonicalId = `user-${idOrUsername.toLowerCase().trim()}`;
+        const canonicalId = `usr_${encodeURIComponent(idOrUsername.toLowerCase().trim())}`;
+        const legacyId = `user-${idOrUsername.toLowerCase().trim()}`;
         const { data, error } = await this.supabase
           .from('kiral_players')
           .select('*')
-          .or(`id.eq.${canonicalId},id.eq.${idOrUsername},username.ilike.${idOrUsername}`)
+          .or(`id.eq.${canonicalId},id.eq.${legacyId},id.eq.${idOrUsername},username.ilike.${idOrUsername}`)
+          .order('total_games', { ascending: false })
           .limit(1);
 
         if (!error && data && data.length > 0) {
@@ -276,6 +303,7 @@ class CloudDatabaseService {
     // 1. Supabase Postgres
     if (this.supabase && this.config.provider === 'supabase') {
       try {
+        const canonicalId = `usr_${encodeURIComponent(user.username.trim().toLowerCase())}`;
         let avatarPayload: string | null = null;
         if (user.avatarUrl || user.password || user.activeGame) {
           avatarPayload = JSON.stringify({
@@ -287,7 +315,7 @@ class CloudDatabaseService {
 
         const { error } = await this.supabase.from('kiral_players').upsert(
           {
-            id: user.id,
+            id: canonicalId,
             username: user.username,
             elo: user.elo,
             puzzle_points: user.puzzlePoints,

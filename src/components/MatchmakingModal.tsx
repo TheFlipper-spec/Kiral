@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Globe, Bot, Swords, User } from 'lucide-react';
+import { X, Globe, Bot, Swords, User, Clock } from 'lucide-react';
 import type { UserProfile } from '../services/userService';
 import { multiplayerService } from '../services/multiplayerService';
 import type { RankedMatchSession } from '../services/multiplayerService';
+import { TIME_CONTROLS } from '../types/chess';
+import type { TimeControlId } from '../types/chess';
 
 interface MatchmakingModalProps {
   isOpen: boolean;
@@ -20,6 +22,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [searchSeconds, setSearchSeconds] = useState(0);
   const [cancelFn, setCancelFn] = useState<(() => void) | null>(null);
+  const [selectedTimeControlId, setSelectedTimeControlId] = useState<TimeControlId>('rapid_10_0');
 
   useEffect(() => {
     let timer: any = null;
@@ -46,7 +49,8 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
         setIsSearching(false);
         onStartMatch(session);
         onClose();
-      }
+      },
+      selectedTimeControlId
     );
     setCancelFn(() => cancel);
   };
@@ -57,7 +61,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
   };
 
   const handleStartRankedAi = () => {
-    const session = multiplayerService.createRankedAiMatch(currentUser);
+    const session = multiplayerService.createRankedAiMatch(currentUser, selectedTimeControlId);
     onStartMatch(session);
     onClose();
   };
@@ -110,6 +114,33 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
             <span className="px-2.5 py-1 rounded bg-[#1baca6]/15 border border-[#1baca6]/30 text-[#1baca6] font-mono font-bold text-xs">
               {currentUser.elo} ELO
             </span>
+          </div>
+
+          {/* Time control selector */}
+          <div className="w-full mb-4">
+            <span className="text-[11px] font-mono text-[#888888] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-[#1baca6]" />
+              Контроль времени (Часы Фишера):
+            </span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {TIME_CONTROLS.map((tc) => {
+                const isSelected = tc.id === selectedTimeControlId;
+                return (
+                  <button
+                    key={tc.id}
+                    onClick={() => setSelectedTimeControlId(tc.id)}
+                    className={`p-2 rounded-lg border text-left transition-all ${
+                      isSelected
+                        ? 'bg-[#1baca6]/15 border-[#1baca6] text-white shadow-sm'
+                        : 'bg-[#161616] border-[#2A2A2A] text-[#888888] hover:text-[#CCCCCC] hover:bg-[#1E1E1E]'
+                    }`}
+                  >
+                    <div className="text-xs font-mono font-bold">{tc.label}</div>
+                    <div className="text-[10px] font-mono text-[#777777]">{tc.category}</div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {!isSearching ? (

@@ -1,9 +1,12 @@
 import React from 'react';
 import type { GameReport, MoveClassification } from '../types/chess';
 import { CLASSIFICATION_CONFIGS } from '../types/chess';
+import { Target } from 'lucide-react';
 
 interface SummaryTabProps {
   report: GameReport;
+  mistakeCount?: number;
+  onStartMistakeReplay?: () => void;
 }
 
 const CLASSIFICATION_ORDER: MoveClassification[] = [
@@ -20,7 +23,11 @@ const CLASSIFICATION_ORDER: MoveClassification[] = [
   'miss'
 ];
 
-export const SummaryTab: React.FC<SummaryTabProps> = ({ report }) => {
+export const SummaryTab: React.FC<SummaryTabProps> = ({
+  report,
+  mistakeCount = 0,
+  onStartMistakeReplay
+}) => {
   const { whiteAccuracy, blackAccuracy, whitePlayer, blackPlayer, classificationSummary } = report;
 
   return (
@@ -61,6 +68,18 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({ report }) => {
           <span className="text-[10px] font-mono text-[#666666] mt-0.5">Точность CAPS</span>
         </div>
       </div>
+
+      {/* Mistake Replay Action Button */}
+      {Boolean(mistakeCount && mistakeCount > 0 && onStartMistakeReplay) && (
+        <button
+          onClick={onStartMistakeReplay}
+          className="w-full p-2.5 rounded-lg bg-[#1baca6] hover:bg-[#20c2bc] text-black font-mono font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer"
+          title="Интерактивно переиграть свои зевки и ошибки"
+        >
+          <Target className="w-4 h-4" />
+          <span>Работа над ошибками ({mistakeCount})</span>
+        </button>
+      )}
 
       {/* Classification Breakdown Table */}
       <div className="bg-[#121212] border border-[#262626] rounded-md overflow-hidden">

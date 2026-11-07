@@ -4,6 +4,7 @@ import { Chessboard } from 'react-chessboard';
 import { EvalBar } from './EvalBar';
 import { ClassificationBadge } from './ClassificationBadge';
 import type { MoveAnalysis, MoveClassification } from '../types/chess';
+import type { MistakeReviewItem } from '../engine/mistakeReplay';
 import {
   ChevronFirst,
   ChevronLeft,
@@ -24,7 +25,11 @@ import {
   Bot,
   Undo2,
   Handshake,
-  X
+  X,
+  Target,
+  Lightbulb,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 
 export interface MoveAccentInfo {
@@ -139,6 +144,19 @@ interface ChessboardAreaProps {
   onOfferDraw?: () => void;
   canUndoMove?: boolean;
   onUndoMove?: () => void;
+  mistakeCount?: number;
+  onStartMistakeReplay?: () => void;
+  activeMistake?: {
+    index: number;
+    total: number;
+    item: MistakeReviewItem;
+    success: boolean | null;
+    solutionRevealed: boolean;
+  } | null;
+  onNextMistake?: () => void;
+  onRevealMistakeSolution?: () => void;
+  onExitMistakeReplay?: () => void;
+  timeControlBadge?: string;
 }
 
 export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
@@ -176,7 +194,14 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   canOfferDraw = false,
   onOfferDraw,
   canUndoMove = false,
-  onUndoMove
+  onUndoMove,
+  mistakeCount = 0,
+  onStartMistakeReplay,
+  activeMistake = null,
+  onNextMistake,
+  onRevealMistakeSolution,
+  onExitMistakeReplay,
+  timeControlBadge
 }) => {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -308,6 +333,15 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       startSquare: openingsArrow.from,
       endSquare: openingsArrow.to,
       color: 'rgba(27, 172, 166, 0.85)'
+    });
+  }
+
+  // Mistake Replay solution hint arrow
+  if (activeMistake?.solutionRevealed && activeMistake.item.bestMoveUci && activeMistake.item.bestMoveUci.length >= 4) {
+    customArrows.push({
+      startSquare: activeMistake.item.bestMoveUci.substring(0, 2),
+      endSquare: activeMistake.item.bestMoveUci.substring(2, 4),
+      color: 'rgba(150, 188, 75, 0.9)'
     });
   }
 
@@ -460,8 +494,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const boardWidthClass =
-    "w-full max-w-[min(96vw,calc(56vh-16px))] sm:max-w-[min(96vw,calc(100vh-140px))] lg:max-w-[min(calc(100vw-440px),calc(100vh-130px))] xl:max-w-[min(calc(100vw-480px),calc(100vh-120px))] 2xl:max-w-[min(calc(100vw-520px),calc(100vh-110px))] landscape:max-lg:max-w-[min(96vw,calc(100vh-100px))]";
+  const boardWidthClass = "kiral-board-container";
 
   const topCaptured = topPlayer ? (topPlayer.color === 'w' ? capturedSummary.whiteCaptures : capturedSummary.blackCaptures) : [];
   const topAdvantage = topPlayer ? (topPlayer.color === 'w' ? capturedSummary.whiteAdvantage : capturedSummary.blackAdvantage) : 0;
@@ -778,16 +811,105 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             </div>
           )}
 
+          {/* Active Mistake Replay Banner Overlay */}
+          {activeMistake && (
+            <div className="absolute top-2 inset-x-2 z-40 flex flex-col items-center pointer-events-auto animate-in slide-in-from-top duration-200">
+              <div className="bg-[#121212]/95 border border-[#1baca6]/50 shadow-2xl rounded-xl p-3 flex flex-col gap-2 max-w-sm w-full backdrop-blur-md">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Target className="w-3.5 h-3.5 text-[#1baca6]" />
+                    <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                      Работа над ошибками ({activeMistake.index + 1}/{activeMistake.total})
+                    </span>
+                  </div>
+                  {onExitMistakeReplay && (
+                    <button
+                      onClick={onExitMistakeReplay}
+                      className="text-zinc-500 hover:text-zinc-200 transition-colors p-0.5"
+                      title="Выйти из режима работы над ошибками"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="text-[11px] font-mono text-zinc-300">
+                  Ход {activeMistake.item.moveNumber}: вы сыграли{' '}
+                  <span className="font-bold text-rose-400">{activeMistake.item.playedSan}</span>{' '}
+                  ({activeMistake.item.classification === 'blunder' ? 'Зевок' : 'Ошибка'})
+                </div>
+
+                <div className="text-[10px] text-zinc-400 leading-tight">
+                  {activeMistake.item.reason}
+                </div>
+
+                {activeMistake.success === true && (
+                  <div className="p-2 rounded bg-emerald-950/80 border border-emerald-600/60 flex items-center justify-between text-xs font-mono text-emerald-300 animate-in fade-in">
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <span>Отлично! Ход верный!</span>
+                    </div>
+                    {onNextMistake && (
+                      <button
+                        onClick={onNextMistake}
+                        className="px-2.5 py-1 rounded bg-emerald-500 text-black font-bold text-xs hover:bg-emerald-400 transition-colors cursor-pointer"
+                      >
+                        {activeMistake.index + 1 < activeMistake.total ? 'Далее ➔' : 'Готово ✓'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {activeMistake.success === false && (
+                  <div className="p-1.5 rounded bg-rose-950/80 border border-rose-600/60 flex items-center gap-1.5 text-xs font-mono text-rose-300 animate-in fade-in">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>Ход не решает проблему. Попробуйте еще раз!</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-1 border-t border-zinc-800 text-[11px] font-mono">
+                  <span className="text-[#888888]">Сделайте лучший ход на доске</span>
+                  {onRevealMistakeSolution && !activeMistake.solutionRevealed && (
+                    <button
+                      onClick={onRevealMistakeSolution}
+                      className="text-[#1baca6] hover:underline flex items-center gap-1 text-[10px] cursor-pointer"
+                    >
+                      <Lightbulb className="w-3 h-3" />
+                      <span>Подсказка</span>
+                    </button>
+                  )}
+                  {activeMistake.solutionRevealed && activeMistake.item.bestMoveSan && (
+                    <span className="text-[#96bc4b] font-bold">
+                      Лучший ход: {activeMistake.item.bestMoveSan}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Game Over Modal Overlay */}
-          {gameOverMessage && !isDismissedGameOver && (
+          {gameOverMessage && !isDismissedGameOver && !activeMistake && (
             <div className="absolute inset-0 bg-black/85 z-40 flex flex-col items-center justify-center p-4 backdrop-blur-[3px] animate-in fade-in duration-300">
-              <div className="p-5 bg-[#141414] border border-[#333333] rounded-xl shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
+              <div className="p-5 bg-[#141414] border border-[#333333] rounded-xl shadow-2xl flex flex-col items-center text-center max-w-sm w-full">
                 <span className="text-[11px] font-mono uppercase tracking-wider text-[#888888] mb-1">
                   Партия завершена
                 </span>
                 <span className="text-base font-sans font-bold text-[#EDEDED] mb-4">
                   {gameOverMessage}
                 </span>
+
+                {Boolean(mistakeCount && mistakeCount > 0 && onStartMistakeReplay) && (
+                  <button
+                    onClick={onStartMistakeReplay}
+                    className="w-full mb-3 px-4 py-2 rounded-lg bg-[#1baca6] text-black hover:bg-[#20c2bc] text-xs font-mono font-bold flex items-center justify-center gap-2 transition-colors shadow-lg cursor-pointer"
+                    title="Интерактивно переиграть свои зевки и ошибки"
+                  >
+                    <Target className="w-4 h-4" />
+                    <span>Работа над ошибками ({mistakeCount})</span>
+                  </button>
+                )}
+
                 <div className="flex flex-col sm:flex-row items-center gap-2 w-full justify-center">
                   <button
                     onClick={() => setIsDismissedGameOver(true)}
@@ -808,6 +930,42 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Compact floating banner when modal is dismissed and mistake replay is not active */}
+          {gameOverMessage && isDismissedGameOver && !activeMistake && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-[#141414]/95 border border-[#333333] shadow-2xl backdrop-blur-md text-[11px] sm:text-xs font-mono max-w-[94%] select-none">
+              <span className="text-[#EDEDED] font-semibold truncate max-w-[170px] xs:max-w-[220px] sm:max-w-xs md:max-w-md">
+                {gameOverMessage}
+              </span>
+              <button
+                onClick={() => setIsDismissedGameOver(false)}
+                className="text-[#1baca6] hover:text-[#25d3cc] flex items-center gap-1 text-[10px] sm:text-[11px] shrink-0 font-medium px-1.5 py-0.5 rounded hover:bg-[#202020] transition-colors cursor-pointer"
+                title="Показать окно результата"
+              >
+                <Eye className="w-3 h-3" />
+                <span>Окно</span>
+              </button>
+              {Boolean(mistakeCount && mistakeCount > 0 && onStartMistakeReplay) && (
+                <button
+                  onClick={onStartMistakeReplay}
+                  className="px-2 py-0.5 rounded bg-[#1baca6]/20 border border-[#1baca6]/40 hover:bg-[#1baca6]/30 text-[#1baca6] text-[10px] sm:text-[11px] font-bold flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                  title="Работа над ошибками"
+                >
+                  <Target className="w-3 h-3" />
+                  <span className="hidden xs:inline">Ошибки</span> ({mistakeCount})
+                </button>
+              )}
+              {onRestartGame && (
+                <button
+                  onClick={onRestartGame}
+                  className="px-2 py-0.5 rounded bg-[#222222] hover:bg-[#2c2c2c] border border-[#333333] text-[#CCCCCC] hover:text-white text-[10px] sm:text-[11px] flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                >
+                  <RotateCw className="w-3 h-3" />
+                  <span>Переиграть</span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -880,6 +1038,11 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                 <span className="hidden sm:inline">Сдаться</span>
               </button>
             )}
+            {timeControlBadge && (
+              <span className="hidden xs:inline px-1.5 py-0.5 rounded bg-[#161616] border border-[#2A2A2A] text-[10px] font-mono text-[#1baca6] font-bold">
+                {timeControlBadge}
+              </span>
+            )}
             {typeof bottomPlayer.timeRemaining === 'number' && (
               <div
                 className={`px-2 py-0.5 rounded border font-mono text-xs font-bold flex items-center gap-1 transition-colors ${
@@ -889,7 +1052,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                     ? 'bg-[#1baca6]/25 border-[#1baca6] text-white'
                     : 'bg-[#181818] border-[#2C2C2C] text-[#777777]'
                 }`}
-                title="Ваше оставшееся время (10 минут на партию)"
+                title="Ваше оставшееся время"
               >
                 <Clock className="w-3 h-3" />
                 <span>{formatClock(bottomPlayer.timeRemaining)}</span>

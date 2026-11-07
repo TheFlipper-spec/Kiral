@@ -17,6 +17,8 @@ interface AnalysisPanelProps {
   isPreviewingLine: boolean;
   onTogglePreviewLine: () => void;
   hideEngineHints?: boolean;
+  mistakeCount?: number;
+  onStartMistakeReplay?: () => void;
 }
 
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
@@ -28,7 +30,9 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   onCancelAnalysis,
   isPreviewingLine,
   onTogglePreviewLine,
-  hideEngineHints = false
+  hideEngineHints = false,
+  mistakeCount = 0,
+  onStartMistakeReplay
 }) => {
   const [activeTab, setActiveTab] = useState<'summary' | 'moves'>('moves');
 
@@ -127,7 +131,11 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
             onSelectPly={onSelectPly}
           />
         ) : report ? (
-          <SummaryTab report={report} />
+          <SummaryTab
+            report={report}
+            mistakeCount={mistakeCount}
+            onStartMistakeReplay={onStartMistakeReplay}
+          />
         ) : (
           <div className="flex-1 flex items-center justify-center p-4 text-xs font-mono text-[#666666]">
             Ожидание анализа...

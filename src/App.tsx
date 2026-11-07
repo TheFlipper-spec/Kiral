@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Chess, Move } from 'chess.js';
 import { Header } from './components/Header';
 import type { GameMode } from './components/Header';
@@ -30,8 +30,9 @@ import type { UserProfile, ActiveGameSyncData } from './services/userService';
 import { cloudDatabase } from './services/cloudDatabase';
 import { classifySingleMove, calculatePlayerAccuracy, quickEvaluateFen } from './engine/evalFormulas';
 import { detectOpeningNameFromMoves } from './engine/bookMoves';
-import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES } from './types/chess';
-import type { GameReport, MoveAnalysis, MoveClassification, EngineEvaluation } from './types/chess';
+import { extractPlayerMistakes } from './engine/mistakeReplay';
+import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES, TIME_CONTROLS } from './types/chess';
+import type { GameReport, MoveAnalysis, MoveClassification, EngineEvaluation, TimeControlId } from './types/chess';
 
 const STORAGE_ACTIVE_RANKED_MATCH = 'kiral_active_ranked_match_v1';
 const INITIAL_RANKED_TIME_SEC = 600; // 10 minutes per player
@@ -46,6 +47,10 @@ export const App: React.FC = () => {
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(() => cloudDatabase.isConnected);
   const [remoteActiveGamePrompt, setRemoteActiveGamePrompt] = useState<ActiveGameSyncData | null>(null);
   const [incomingDrawOffer, setIncomingDrawOffer] = useState<{ fromUser: string } | null>(null);
+  const [isMistakeReplayActive, setIsMistakeReplayActive] = useState<boolean>(false);
+  const [mistakeIndex, setMistakeIndex] = useState<number>(0);
+  const [mistakeSuccess, setMistakeSuccess] = useState<boolean | null>(null);
+  const [mistakeSolutionRevealed, setMistakeSolutionRevealed] = useState<boolean>(false);
   const lastLocalActionTimeRef = useRef<number>(Date.now());
   const aiRequestIdRef = useRef<number>(0);
 
@@ -93,10 +98,11 @@ export const App: React.FC = () => {
   const [moveAccent, setMoveAccent] = useState<MoveAccentInfo | null>(null);
   const moveAccentTimerRef = useRef<number | null>(null);
 
-  // Ranked & Multiplayer state + 10-minute Chess Clocks
+  // Ranked & Multiplayer state + Chess Clocks
   const [isMatchmakingOpen, setIsMatchmakingOpen] = useState<boolean>(false);
   const [selectedProfileUser, setSelectedProfileUser] = useState<UserProfile | null>(null);
   const [activeRankedSession, setActiveRankedSession] = useState<RankedMatchSession | null>(null);
+  const [activeTimeControlId, setActiveTimeControlId] = useState<TimeControlId>('rapid_10_0');
   const [incomingChallenge, setIncomingChallenge] = useState<DirectChallengePayload | null>(null);
   const [whiteTime, setWhiteTime] = useState<number>(INITIAL_RANKED_TIME_SEC);
   const [blackTime, setBlackTime] = useState<number>(INITIAL_RANKED_TIME_SEC);
@@ -106,6 +112,13 @@ export const App: React.FC = () => {
   blackTimeRef.current = blackTime;
   const activeRankedSessionRef = useRef<RankedMatchSession | null>(null);
   activeRankedSessionRef.current = activeRankedSession;
+
+  const activeTimeControl = useMemo(
+    () =>
+      TIME_CONTROLS.find((t) => t.id === (activeRankedSession?.timeControlId || activeTimeControlId)) ||
+      TIME_CONTROLS[2],
+    [activeRankedSession?.timeControlId, activeTimeControlId]
+  );
 
   useEffect(() => {
     multiplayerService.setPlayer(currentUser);
@@ -302,6 +315,59 @@ export const App: React.FC = () => {
       if (timer) clearInterval(timer);
     };
   }, [isPlaying, fens.length, playMoveAudio]);
+
+  // Mistakes extraction for Mistake Replay (Работа над ошибками)
+  const playerMistakes = useMemo(
+    () => extractPlayerMistakes(report, playerColor),
+    [report, playerColor]
+  );
+
+  const activeMistake = useMemo(() => {
+    if (!isMistakeReplayActive || !playerMistakes[mistakeIndex]) return null;
+    return {
+      index: mistakeIndex,
+      total: playerMistakes.length,
+      item: playerMistakes[mistakeIndex],
+      success: mistakeSuccess,
+      solutionRevealed: mistakeSolutionRevealed
+    };
+  }, [isMistakeReplayActive, playerMistakes, mistakeIndex, mistakeSuccess, mistakeSolutionRevealed]);
+
+  const handleStartMistakeReplay = useCallback(() => {
+    if (playerMistakes.length === 0) return;
+    setIsMistakeReplayActive(true);
+    setMistakeIndex(0);
+    setMistakeSuccess(null);
+    setMistakeSolutionRevealed(false);
+    setPreviewFen(playerMistakes[0].fenBefore);
+    setIsPreviewingLine(true);
+  }, [playerMistakes]);
+
+  const handleNextMistake = useCallback(() => {
+    if (mistakeIndex + 1 < playerMistakes.length) {
+      const nextIdx = mistakeIndex + 1;
+      setMistakeIndex(nextIdx);
+      setMistakeSuccess(null);
+      setMistakeSolutionRevealed(false);
+      setPreviewFen(playerMistakes[nextIdx].fenBefore);
+    } else {
+      setIsMistakeReplayActive(false);
+      setPreviewFen(null);
+      setIsPreviewingLine(false);
+      sound.playVictory();
+      sound.speak('Работа над ошибками успешно завершена!');
+    }
+  }, [mistakeIndex, playerMistakes]);
+
+  const handleRevealMistakeSolution = useCallback(() => {
+    setMistakeSolutionRevealed(true);
+  }, []);
+
+  const handleExitMistakeReplay = useCallback(() => {
+    setIsMistakeReplayActive(false);
+    setPreviewFen(null);
+    setIsPreviewingLine(false);
+  }, []);
 
   // Position Evaluation Cache (always stores objective Skill 20 Stockfish evaluations)
   const positionEvalCacheRef = useRef<Map<string, EngineEvaluation>>(
@@ -626,6 +692,22 @@ export const App: React.FC = () => {
             const nextPly = currentPlyCount + 1;
             setCurrentPly(nextPly);
 
+            // Apply Fischer increment for AI move
+            if (activeTimeControl?.incrementSeconds && activeTimeControl.incrementSeconds > 0) {
+              const aiColor = activeRankedSessionRef.current
+                ? activeRankedSessionRef.current.myColor === 'w'
+                  ? 'b'
+                  : 'w'
+                : playerColor === 'w'
+                ? 'b'
+                : 'w';
+              if (aiColor === 'w') {
+                setWhiteTime((prev) => (typeof prev === 'number' ? prev + activeTimeControl.incrementSeconds : prev));
+              } else {
+                setBlackTime((prev) => (typeof prev === 'number' ? prev + activeTimeControl.incrementSeconds : prev));
+              }
+            }
+
             if (aiMoveResult.captured) {
               sound.playCapture();
             } else if (newFen.includes('+') || chess.inCheck()) {
@@ -643,7 +725,7 @@ export const App: React.FC = () => {
                   const opp = activeRankedSessionRef.current.opponent;
                   if (chess.isCheckmate()) {
                     const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'loss');
-                    setCurrentUser(userService.getCurrentUser());
+                    setCurrentUser({ ...userService.getCurrentUser() });
                     setGameOverMessage(`${over} • ${matchRes.message}`);
                     sound.playDefeat();
                     sound.speak(`Поражение. ${matchRes.eloChange} Эло.`);
@@ -659,7 +741,7 @@ export const App: React.FC = () => {
                     });
                   } else if (chess.isDraw() || chess.isStalemate()) {
                     const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
-                    setCurrentUser(userService.getCurrentUser());
+                    setCurrentUser({ ...userService.getCurrentUser() });
                     setGameOverMessage(`${over} • ${matchRes.message}`);
                     setScoreDelta({
                       id: `elo-${Date.now()}`,
@@ -678,12 +760,12 @@ export const App: React.FC = () => {
                 } else if (gameModeRef.current === 'vs-ai') {
                   if (chess.isCheckmate()) {
                     userService.recordCasualMatch('loss');
-                    setCurrentUser(userService.getCurrentUser());
+                    setCurrentUser({ ...userService.getCurrentUser() });
                     sound.playDefeat();
                     sound.speak('Поражение в тренировочном матче');
                   } else if (chess.isDraw() || chess.isStalemate()) {
                     userService.recordCasualMatch('draw');
-                    setCurrentUser(userService.getCurrentUser());
+                    setCurrentUser({ ...userService.getCurrentUser() });
                   }
                   setGameOverMessage(over);
                 } else {
@@ -718,6 +800,40 @@ export const App: React.FC = () => {
 
     const currentBoardFen = previewFen || fens[currentPly] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     const chess = new Chess(currentBoardFen);
+
+    // In Mistake Replay mode: validate attempt against current mistake item
+    if (isMistakeReplayActive && playerMistakes[mistakeIndex]) {
+      const currentItem = playerMistakes[mistakeIndex];
+      let pMove: Move | null = null;
+      try {
+        pMove = chess.move({
+          from: sourceSquare,
+          to: targetSquare,
+          promotion: (promotion as any) || 'q'
+        });
+      } catch {
+        return false;
+      }
+      if (!pMove) return false;
+
+      const playedUci = `${pMove.from}${pMove.to}${pMove.promotion || ''}`;
+      const isCorrect =
+        playedUci === currentItem.bestMoveUci ||
+        (currentItem.bestMoveSan && pMove.san === currentItem.bestMoveSan);
+
+      if (isCorrect) {
+        sound.playVictory();
+        sound.speak('Отлично! Вы нашли правильный ход!');
+        setMistakeSuccess(true);
+        setPreviewFen(chess.fen());
+        return true;
+      } else {
+        sound.playBlunder();
+        sound.speak('Этот ход не решает проблему. Попробуйте еще раз или возьмите подсказку.');
+        setMistakeSuccess(false);
+        return false;
+      }
+    }
 
     // In VS AI mode, restrict moves to player's turn
     if (gameMode === 'vs-ai' && (chess.turn() !== playerColor || Boolean(gameOverMessage))) {
@@ -792,7 +908,7 @@ export const App: React.FC = () => {
                   setPuzzleStatus('solved');
                   setSolvedPuzzlesCount((c) => c + 1);
                   const pRes = userService.recordPuzzleSolved(activePuzzle.id, activePuzzle.rating);
-                  setCurrentUser(userService.getCurrentUser());
+                  setCurrentUser({ ...userService.getCurrentUser() });
                   sound.playVictory();
                   sound.speak(`Задача решена! Плюс ${pRes.pointsAwarded} баллов. ${activePuzzle.explanation}`);
                   setScoreDelta({
@@ -815,7 +931,7 @@ export const App: React.FC = () => {
           setPuzzleStatus('solved');
           setSolvedPuzzlesCount((c) => c + 1);
           const pRes = userService.recordPuzzleSolved(activePuzzle.id, activePuzzle.rating);
-          setCurrentUser(userService.getCurrentUser());
+          setCurrentUser({ ...userService.getCurrentUser() });
           sound.playVictory();
           sound.speak(`Задача решена! Плюс ${pRes.pointsAwarded} баллов. ${activePuzzle.explanation}`);
           setScoreDelta({
@@ -892,6 +1008,15 @@ export const App: React.FC = () => {
 
     const nextPly = currentPly + 1;
     setCurrentPly(nextPly);
+
+    // Apply Fischer increment for the moving player
+    if (activeTimeControl?.incrementSeconds && activeTimeControl.incrementSeconds > 0) {
+      if (playerColor === 'w') {
+        setWhiteTime((prev) => (typeof prev === 'number' ? prev + activeTimeControl.incrementSeconds : prev));
+      } else {
+        setBlackTime((prev) => (typeof prev === 'number' ? prev + activeTimeControl.incrementSeconds : prev));
+      }
+    }
     setIsPreviewingLine(false);
     setPreviewFen(null);
 
@@ -935,7 +1060,7 @@ export const App: React.FC = () => {
                 prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
               );
             }
-            setCurrentUser(userService.getCurrentUser());
+            setCurrentUser({ ...userService.getCurrentUser() });
             setGameOverMessage(`${overStatus} • ${matchRes.message}`);
             sound.playVictory();
             sound.speak(`Победа! Плюс ${matchRes.eloChange} Эло.`);
@@ -963,7 +1088,7 @@ export const App: React.FC = () => {
                 prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
               );
             }
-            setCurrentUser(userService.getCurrentUser());
+            setCurrentUser({ ...userService.getCurrentUser() });
             setGameOverMessage(`${overStatus} • ${matchRes.message}`);
             setScoreDelta({
               id: `elo-${Date.now()}`,
@@ -982,12 +1107,12 @@ export const App: React.FC = () => {
         } else if (gameMode === 'vs-ai') {
           if (chess.isCheckmate()) {
             userService.recordCasualMatch('win');
-            setCurrentUser(userService.getCurrentUser());
+            setCurrentUser({ ...userService.getCurrentUser() });
             sound.playVictory();
             sound.speak('Победа в тренировочном матче!');
           } else if (chess.isDraw() || chess.isStalemate()) {
             userService.recordCasualMatch('draw');
-            setCurrentUser(userService.getCurrentUser());
+            setCurrentUser({ ...userService.getCurrentUser() });
           }
           setGameOverMessage(overStatus);
         } else {
@@ -1361,7 +1486,7 @@ export const App: React.FC = () => {
                 setActiveRankedSession((prev) =>
                   prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
                 );
-                setCurrentUser(userService.getCurrentUser());
+                setCurrentUser({ ...userService.getCurrentUser() });
                 setGameOverMessage(`${over} • ${matchRes.message}`);
                 sound.playDefeat();
                 setScoreDelta({
@@ -1386,7 +1511,7 @@ export const App: React.FC = () => {
                 setActiveRankedSession((prev) =>
                   prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
                 );
-                setCurrentUser(userService.getCurrentUser());
+                setCurrentUser({ ...userService.getCurrentUser() });
                 setGameOverMessage(`${over} • ${matchRes.message}`);
                 setScoreDelta({
                   id: `elo-${Date.now()}`,
@@ -1426,7 +1551,7 @@ export const App: React.FC = () => {
           prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
         );
       }
-      setCurrentUser(userService.getCurrentUser());
+      setCurrentUser({ ...userService.getCurrentUser() });
       setGameOverMessage(`Соперник ${opp.username} сдался! • ${matchRes.message}`);
       sound.playVictory();
       setScoreDelta({
@@ -1458,7 +1583,7 @@ export const App: React.FC = () => {
           prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
         );
       }
-      setCurrentUser(userService.getCurrentUser());
+      setCurrentUser({ ...userService.getCurrentUser() });
       setGameOverMessage(`У соперника ${opp.username} истекло время! • ${matchRes.message}`);
       sound.playVictory();
       sound.speak(`Время соперника вышло! Победа!`);
@@ -1499,7 +1624,7 @@ export const App: React.FC = () => {
           prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
         );
       }
-      setCurrentUser(userService.getCurrentUser());
+      setCurrentUser({ ...userService.getCurrentUser() });
       setGameOverMessage(`Вы сдались • ${matchRes.message}`);
       sound.playDefeat();
       setScoreDelta({
@@ -1514,7 +1639,7 @@ export const App: React.FC = () => {
       });
     } else if (gameMode === 'vs-ai') {
       userService.recordCasualMatch('loss');
-      setCurrentUser(userService.getCurrentUser());
+      setCurrentUser({ ...userService.getCurrentUser() });
       setGameOverMessage('Вы сдались в тренировочном матче');
       sound.playDefeat();
     }
@@ -1538,7 +1663,7 @@ export const App: React.FC = () => {
           'draw'
         );
       }
-      setCurrentUser(userService.getCurrentUser());
+      setCurrentUser({ ...userService.getCurrentUser() });
       sound.playVictory();
       sound.speak('Соперник принял ничью. Партия завершилась миром.');
       setGameOverMessage(`Ничья по соглашению сторон • ${matchRes.message}`);
@@ -1555,7 +1680,7 @@ export const App: React.FC = () => {
       // Stockfish accepts draw if position is balanced (|eval| <= 80) and at least 10 plies played
       if (Math.abs(currentEval) <= 80 && fens.length >= 10) {
         userService.recordCasualMatch('draw');
-        setCurrentUser(userService.getCurrentUser());
+        setCurrentUser({ ...userService.getCurrentUser() });
         sound.playVictory();
         sound.speak('ИИ согласен на ничью. Партия завершилась миром.');
         setGameOverMessage('Ничья по соглашению сторон • 1/2 - 1/2');
@@ -1627,7 +1752,7 @@ export const App: React.FC = () => {
           if (sess.myColor === 'w') {
             multiplayerService.sendTimeout();
             const matchRes = userService.recordCompetitiveMatchResult(sess.opponent.elo, 'loss');
-            setCurrentUser(userService.getCurrentUser());
+            setCurrentUser({ ...userService.getCurrentUser() });
             setGameOverMessage(`Ваше время (10:00) истекло! Поражение • ${matchRes.message}`);
             sound.playDefeat();
             sound.speak('Время вышло. Вы проиграли.');
@@ -1654,7 +1779,7 @@ export const App: React.FC = () => {
           if (sess.myColor === 'b') {
             multiplayerService.sendTimeout();
             const matchRes = userService.recordCompetitiveMatchResult(sess.opponent.elo, 'loss');
-            setCurrentUser(userService.getCurrentUser());
+            setCurrentUser({ ...userService.getCurrentUser() });
             setGameOverMessage(`Ваше время (10:00) истекло! Поражение • ${matchRes.message}`);
             sound.playDefeat();
             sound.speak('Время вышло. Вы проиграли.');
@@ -1894,8 +2019,10 @@ export const App: React.FC = () => {
     setIsPreviewingLine(false);
     setPreviewFen(null);
 
-    setWhiteTime(INITIAL_RANKED_TIME_SEC);
-    setBlackTime(INITIAL_RANKED_TIME_SEC);
+    const tc = TIME_CONTROLS.find((t) => t.id === session.timeControlId) || TIME_CONTROLS[2];
+    setActiveTimeControlId(tc.id);
+    setWhiteTime(tc.initialSeconds);
+    setBlackTime(tc.initialSeconds);
     setActiveRankedSession(session);
     multiplayerService.setCurrentSession(session);
     setGameMode('ranked');
@@ -1923,7 +2050,7 @@ export const App: React.FC = () => {
       blackAccuracy: 100,
       whitePlayer: whiteName,
       blackPlayer: blackName,
-      event: session.isOnlinePvP ? 'Онлайн матч на рейтинг (10 мин)' : 'Рейтинговый матч против ИИ',
+      event: session.isOnlinePvP ? `Онлайн матч на рейтинг (${tc.label})` : `Рейтинговый матч против ИИ (${tc.label})`,
       date: new Date().toISOString().slice(0, 10),
       result: '*',
       moves: [],
@@ -2369,7 +2496,7 @@ export const App: React.FC = () => {
                     'draw'
                   );
                 }
-                setCurrentUser(userService.getCurrentUser());
+                setCurrentUser({ ...userService.getCurrentUser() });
                 sound.playVictory();
                 sound.speak('Вы приняли ничью.');
                 setGameOverMessage(`Ничья по соглашению сторон • ${matchRes.message}`);
@@ -2430,6 +2557,13 @@ export const App: React.FC = () => {
             onOfferDraw={handleOfferDraw}
             canUndoMove={canUndoMove}
             onUndoMove={handleUndoMove}
+            mistakeCount={playerMistakes.length}
+            onStartMistakeReplay={handleStartMistakeReplay}
+            activeMistake={activeMistake}
+            onNextMistake={handleNextMistake}
+            onRevealMistakeSolution={handleRevealMistakeSolution}
+            onExitMistakeReplay={handleExitMistakeReplay}
+            timeControlBadge={activeTimeControl?.label}
           />
         </section>
 
@@ -2474,6 +2608,8 @@ export const App: React.FC = () => {
               isPreviewingLine={isPreviewingLine}
               onTogglePreviewLine={handleTogglePreviewLine}
               hideEngineHints={false}
+              mistakeCount={playerMistakes.length}
+              onStartMistakeReplay={handleStartMistakeReplay}
             />
           )}
         </section>

@@ -77,3 +77,39 @@ body {
   animation: scorePopIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* Intelligent Responsive Board Sizing: maximally fills space without viewport leaks */
+.kiral-board-container {
+  width: 100%;
+  max-width: min(96vw, calc(100vh - 140px));
+}
+
+@media (min-width: 1024px) {
+  .kiral-board-container {
+    max-width: min(calc(100vw - 480px), calc(100vh - 120px), 820px);
+  }
+}
+
+@media (min-width: 1440px) {
+  .kiral-board-container {
+    max-width: min(calc(100vw - 520px), calc(100vh - 110px), 940px);
+  }
+}
+
+@media (min-width: 1920px) {
+  .kiral-board-container {
+    max-width: min(calc(100vw - 560px), calc(100vh - 100px), 1080px);
+  }
+}
+
+@media (max-width: 767px) and (orientation: portrait) {
+  .kiral-board-container {
+    max-width: min(96vw, calc(56vh - 12px));
+  }
+}
+
+@media (max-height: 540px) and (orientation: landscape) {
+  .kiral-board-container {
+    max-width: min(96vw, calc(100vh - 76px));
+  }
+}
+

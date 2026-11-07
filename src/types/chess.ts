@@ -211,3 +211,49 @@ export const AI_DIFFICULTIES: AiDifficultyConfig[] = [
   { id: 'expert', name: 'Эксперт', depth: 14, skillLevel: 17, eloApprox: 2000 },
   { id: 'master', name: 'Гроссмейстер', depth: 18, skillLevel: 20, eloApprox: 2500 }
 ];
+
+export type TimeControlId = 'blitz_3_2' | 'blitz_5_0' | 'rapid_10_0' | 'classical_15_10';
+
+export interface TimeControlConfig {
+  id: TimeControlId;
+  name: string;
+  category: 'Блиц' | 'Рапид' | 'Классика';
+  initialSeconds: number;
+  incrementSeconds: number;
+  label: string;
+}
+
+export const TIME_CONTROLS: TimeControlConfig[] = [
+  {
+    id: 'blitz_3_2',
+    name: 'Блиц 3+2',
+    category: 'Блиц',
+    initialSeconds: 180,
+    incrementSeconds: 2,
+    label: '3 + 2'
+  },
+  {
+    id: 'blitz_5_0',
+    name: 'Блиц 5+0',
+    category: 'Блиц',
+    initialSeconds: 300,
+    incrementSeconds: 0,
+    label: '5 мин'
+  },
+  {
+    id: 'rapid_10_0',
+    name: 'Рапид 10+0',
+    category: 'Рапид',
+    initialSeconds: 600,
+    incrementSeconds: 0,
+    label: '10 мин'
+  },
+  {
+    id: 'classical_15_10',
+    name: 'Классика 15+10',
+    category: 'Классика',
+    initialSeconds: 900,
+    incrementSeconds: 10,
+    label: '15 + 10'
+  }
+];

@@ -1,11 +1,13 @@
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { supabase as sharedSupabase } from './supabaseClient';
 import type { UserProfile } from './userService';
+import type { TimeControlId } from '../types/chess';
 
 export interface RankedMatchSession {
   roomId: string;
   isOnlinePvP: boolean;
   myColor: 'w' | 'b';
+  timeControlId?: TimeControlId;
   opponent: {
     id: string;
     username: string;
@@ -169,7 +171,8 @@ class MultiplayerService {
    */
   public async startMatchmaking(
     player: UserProfile,
-    onMatchFound: OnMatchFound
+    onMatchFound: OnMatchFound,
+    timeControlId: TimeControlId = 'rapid_10_0'
   ) {
     this.myPlayer = player;
     this.isSearching = true;
@@ -183,6 +186,7 @@ class MultiplayerService {
       username: player.username,
       elo: player.elo,
       avatarUrl: player.avatarUrl,
+      timeControlId,
       timestamp: Date.now()
     };
 
@@ -207,6 +211,7 @@ class MultiplayerService {
 
           const matchPayload = {
             roomId,
+            timeControlId,
             player1: {
               id: player.id,
               username: player.username,
@@ -233,6 +238,7 @@ class MultiplayerService {
             roomId,
             isOnlinePvP: true,
             myColor: iAmWhite ? 'w' : 'b',
+            timeControlId,
             opponent: {
               id: payload.playerId,
               username: payload.username,
@@ -253,6 +259,7 @@ class MultiplayerService {
             roomId: payload.roomId,
             isOnlinePvP: true,
             myColor: payload.player2.color,
+            timeControlId: payload.timeControlId || timeControlId,
             opponent: {
               id: payload.player1.id,
               username: payload.player1.username,
@@ -294,7 +301,10 @@ class MultiplayerService {
   /**
    * Creates a calibrated Ranked AI match matched to user's Elo
    */
-  public createRankedAiMatch(player: UserProfile): RankedMatchSession {
+  public createRankedAiMatch(
+    player: UserProfile,
+    timeControlId: TimeControlId = 'rapid_10_0'
+  ): RankedMatchSession {
     const elo = player.elo;
     let aiDifficultyId = 'casual';
     let aiElo = elo;
@@ -326,6 +336,7 @@ class MultiplayerService {
       roomId: `ai_${Date.now()}`,
       isOnlinePvP: false,
       myColor: Math.random() > 0.5 ? 'w' : 'b',
+      timeControlId,
       opponent: {
         id: `bot_ranked_${aiDifficultyId}`,
         username: `ИИ ${aiDifficultyId === 'novice' ? 'Ученик' : aiDifficultyId === 'beginner' ? 'Новичок' : 'Бот'} (${aiElo} ELO)`,
