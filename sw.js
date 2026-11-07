@@ -1,10 +1,12 @@
-const CACHE_NAME = 'kiral-chess-v2';
+const CACHE_NAME = 'kiral-chess-v3';
 const STATIC_ASSETS = [
   './',
   './index.html',
   './favicon.svg',
   './icon-192.png',
   './icon-512.png',
+  './icon-maskable-192.png',
+  './icon-maskable-512.png',
   './manifest.webmanifest',
   './stockfish.js'
 ];
