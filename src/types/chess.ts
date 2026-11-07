@@ -203,9 +203,10 @@ export interface AiDifficultyConfig {
 }
 
 export const AI_DIFFICULTIES: AiDifficultyConfig[] = [
-  { id: 'beginner', name: 'Новичок', depth: 2, skillLevel: 0, eloApprox: 600 },
-  { id: 'casual', name: 'Любитель', depth: 4, skillLevel: 3, eloApprox: 1000 },
-  { id: 'fast', name: 'Быстрый', depth: 6, skillLevel: 6, eloApprox: 1300 },
+  { id: 'novice', name: 'Ученик', depth: 1, skillLevel: 0, eloApprox: 100 },
+  { id: 'beginner', name: 'Новичок', depth: 2, skillLevel: 1, eloApprox: 500 },
+  { id: 'casual', name: 'Любитель', depth: 4, skillLevel: 4, eloApprox: 900 },
+  { id: 'fast', name: 'Быстрый', depth: 6, skillLevel: 7, eloApprox: 1300 },
   { id: 'club', name: 'Клубный', depth: 10, skillLevel: 12, eloApprox: 1600 },
   { id: 'expert', name: 'Эксперт', depth: 14, skillLevel: 17, eloApprox: 2000 },
   { id: 'master', name: 'Гроссмейстер', depth: 18, skillLevel: 20, eloApprox: 2500 }

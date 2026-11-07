@@ -244,13 +244,48 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     }
   }, [fen]);
 
+  // Detect King in Checkmate
+  const inCheckmateSquare = useMemo(() => {
+    try {
+      const chess = new Chess(fen);
+      if (!chess.isCheckmate()) return null;
+      const turn = chess.turn();
+      const board = chess.board();
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = board[r][c];
+          if (p && p.type === 'k' && p.color === turn) {
+            const file = String.fromCharCode(97 + c);
+            const rank = (8 - r).toString();
+            return `${file}${rank}`;
+          }
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [fen]);
+
   let inCheckPosition: { xPct: number; yPct: number } | null = null;
-  if (inCheckSquare) {
+  if (inCheckSquare && !inCheckmateSquare) {
     const file = inCheckSquare.charCodeAt(0) - 97;
     const rank = parseInt(inCheckSquare[1], 10);
     const col = isFlipped ? 7 - file : file;
     const row = isFlipped ? rank - 1 : 8 - rank;
     inCheckPosition = {
+      xPct: col * 12.5,
+      yPct: row * 12.5
+    };
+  }
+
+  let inCheckmatePosition: { xPct: number; yPct: number } | null = null;
+  if (inCheckmateSquare) {
+    const file = inCheckmateSquare.charCodeAt(0) - 97;
+    const rank = parseInt(inCheckmateSquare[1], 10);
+    const col = isFlipped ? 7 - file : file;
+    const row = isFlipped ? rank - 1 : 8 - rank;
+    inCheckmatePosition = {
       xPct: col * 12.5,
       yPct: row * 12.5
     };
@@ -271,10 +306,16 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       backgroundColor: 'rgba(255, 255, 255, 0.22)'
     };
   }
-  if (inCheckSquare) {
+  if (inCheckSquare && !inCheckmateSquare) {
     customSquareStyles[inCheckSquare] = {
       backgroundColor: 'rgba(220, 38, 38, 0.45)',
       boxShadow: 'inset 0 0 16px rgba(239, 68, 68, 0.9)'
+    };
+  }
+  if (inCheckmateSquare) {
+    customSquareStyles[inCheckmateSquare] = {
+      backgroundColor: 'rgba(185, 28, 28, 0.75)',
+      boxShadow: 'inset 0 0 20px rgba(239, 68, 68, 1)'
     };
   }
 
@@ -315,11 +356,13 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const boardWidthClass = "w-full max-w-[min(94vw,calc(100vh-140px),580px)] landscape:max-lg:max-w-[min(94vw,calc(100vh-100px),360px)]";
+
   return (
-    <div className="flex flex-col items-center justify-center px-2 py-1 sm:p-2 select-none h-full w-full overflow-hidden">
+    <div className="flex flex-col items-center justify-center px-1 sm:px-2 py-1 select-none h-full w-full overflow-hidden">
       {/* Top Player / Opponent Bar */}
       {topPlayer && (
-        <div className="w-full max-w-[270px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[260px] mb-1 sm:mb-1.5 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0">
+        <div className={`${boardWidthClass} mb-1 sm:mb-1.5 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0`}>
           <div className="flex items-center gap-2 truncate">
             <span
               className={`w-3 h-3 rounded-sm border shrink-0 ${
@@ -388,7 +431,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       )}
 
       {/* Board & Eval Bar Container (pixel-aligned height) */}
-      <div className="flex items-stretch gap-2 sm:gap-2.5 w-full max-w-[270px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[260px] relative shrink-0">
+      <div className={`flex items-stretch gap-1.5 sm:gap-2.5 ${boardWidthClass} relative shrink-0`}>
         {/* Vertical Eval Bar */}
         <EvalBar evalCp={evalCp} mate={mate} flipped={isFlipped} />
 
@@ -496,6 +539,25 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             </div>
           )}
 
+          {/* King In Checkmate Indicator Overlay */}
+          {inCheckmatePosition && (
+            <div
+              className="absolute pointer-events-none z-30 flex flex-col items-center justify-center p-0.5 animate-bounce"
+              style={{
+                left: `${inCheckmatePosition.xPct}%`,
+                top: `${inCheckmatePosition.yPct}%`,
+                width: '12.5%',
+                height: '12.5%'
+              }}
+            >
+              <div className="w-full h-full rounded border-2 border-red-500 bg-red-950/90 flex flex-col items-center justify-center shadow-2xl">
+                <span className="bg-red-600 text-white font-mono text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow tracking-wider uppercase">
+                  МАТ!
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* 1.5s Move Status Accent Floating Notification */}
           {moveAccent && (
             <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-150">
@@ -525,10 +587,10 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             </div>
           )}
 
-          {/* Game Over Banner Overlay */}
+          {/* Game Over Modal Overlay */}
           {gameOverMessage && !isDismissedGameOver && (
-            <div className="absolute inset-0 bg-black/80 z-40 flex flex-col items-center justify-center p-4 backdrop-blur-[2px] animate-in fade-in duration-200">
-              <div className="p-5 bg-[#141414] border border-[#333333] rounded-lg shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
+            <div className="absolute inset-0 bg-black/85 z-40 flex flex-col items-center justify-center p-4 backdrop-blur-[3px] animate-in fade-in duration-300">
+              <div className="p-5 bg-[#141414] border border-[#333333] rounded-xl shadow-2xl flex flex-col items-center text-center max-w-xs w-full">
                 <span className="text-[11px] font-mono uppercase tracking-wider text-[#888888] mb-1">
                   Партия завершена
                 </span>
@@ -557,38 +619,12 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               </div>
             </div>
           )}
-
-          {/* Compact floating banner when modal is dismissed */}
-          {gameOverMessage && isDismissedGameOver && (
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#141414]/95 border border-[#333333] shadow-xl backdrop-blur-md text-xs font-mono">
-              <span className="text-[#EDEDED] font-semibold truncate max-w-[150px] sm:max-w-xs">
-                {gameOverMessage}
-              </span>
-              <button
-                onClick={() => setIsDismissedGameOver(false)}
-                className="text-[#1baca6] hover:underline flex items-center gap-1 text-[11px] ml-1"
-                title="Показать окно результата"
-              >
-                <Eye className="w-3 h-3" />
-                <span>Окно</span>
-              </button>
-              {onRestartGame && (
-                <button
-                  onClick={onRestartGame}
-                  className="px-2 py-0.5 rounded bg-[#262626] hover:bg-[#333333] text-[#CCCCCC] hover:text-white text-[11px] flex items-center gap-1 transition-colors"
-                >
-                  <RotateCw className="w-3 h-3" />
-                  <span>Переиграть</span>
-                </button>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
       {/* Bottom Player Bar */}
       {bottomPlayer && (
-        <div className="w-full max-w-[270px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[260px] mt-1 sm:mt-1.5 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0">
+        <div className={`${boardWidthClass} mt-1 sm:mt-1.5 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0`}>
           <div className="flex items-center gap-2 truncate">
             <span
               className={`w-3 h-3 rounded-sm border shrink-0 ${
@@ -617,16 +653,6 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               >
                 <Undo2 className="w-3 h-3" />
                 <span>Отменить ход</span>
-              </button>
-            )}
-            {onOpenBottomPlayerProfile && (
-              <button
-                onClick={onOpenBottomPlayerProfile}
-                className="px-1.5 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-[#CCCCCC] text-[10px] flex items-center gap-1 transition-colors"
-                title="Открыть мой профиль и статистику побед/поражений"
-              >
-                <User className="w-3 h-3 text-[#1baca6]" />
-                <span>Профиль</span>
               </button>
             )}
             {canResign && onResignGame && (
@@ -659,7 +685,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       )}
 
       {/* Navigation & Controls Bar */}
-      <div className="w-full max-w-[270px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[260px] mt-1 sm:mt-1.5 flex items-center justify-between px-2 py-0.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0">
+      <div className={`${boardWidthClass} mt-1 sm:mt-1.5 flex items-center justify-between px-2 py-0.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0`}>
         {/* Left: Move Counter or AI Thinking Status */}
         <div className="text-xs font-mono text-[#888888] flex items-center gap-1.5 min-w-[50px] sm:min-w-[80px]">
           {isAiThinking ? (
@@ -720,8 +746,18 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           </button>
         </div>
 
-        {/* Right: Board options (Flip & Sound) */}
+        {/* Right: Board options (Flip & Sound & Result) */}
         <div className="flex items-center gap-0.5 sm:gap-1 min-w-[50px] sm:min-w-[80px] justify-end">
+          {gameOverMessage && isDismissedGameOver && (
+            <button
+              onClick={() => setIsDismissedGameOver(false)}
+              className="px-1.5 py-1 rounded bg-[#1A1A1A] hover:bg-[#262626] border border-[#333333] text-[#1baca6] hover:text-[#25d3cc] text-[10px] font-mono flex items-center gap-1 transition-colors"
+              title="Показать окно результата"
+            >
+              <Eye className="w-3 h-3" />
+              <span className="hidden sm:inline">Итог</span>
+            </button>
+          )}
           <button
             onClick={onToggleSound}
             className={`p-1.5 rounded transition-colors ${

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, User, Check, RefreshCw, Shield, LogIn, Settings, Lock } from 'lucide-react';
+import { X, User, Check, RefreshCw, Shield, LogIn, Settings, Lock, LogOut, Award, Swords, Users } from 'lucide-react';
 import { userService } from '../services/userService';
 import type { UserProfile } from '../services/userService';
 import { cloudDatabase } from '../services/cloudDatabase';
@@ -25,6 +25,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showDevSettings, setShowDevSettings] = useState(false);
   const [devTab, setDevTab] = useState<'cloud' | 'auth0'>('cloud');
+  const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
+
+  const isLoggedIn = currentUser.isRegistered && currentUser.authProvider !== 'guest';
+
+  const handleLogout = () => {
+    const guest = userService.logoutUser();
+    onUserChanged(guest);
+    setIsSwitchingAccount(false);
+    setError(null);
+    setSuccessMsg('Вы успешно вышли из профиля');
+    setTimeout(() => setSuccessMsg(null), 2500);
+  };
 
   // Cloud credentials form state
   const currentCloudCfg = cloudDatabase.getConfig();
@@ -170,7 +182,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 Текущий активный профиль
               </span>
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
-                {currentUser.authProvider === 'auth0' ? 'Auth0' : 'Игрок'}
+                {currentUser.authProvider === 'auth0' ? 'Auth0' : currentUser.isRegistered ? 'Игрок' : 'Гость'}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -194,77 +206,122 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </div>
 
-          {/* Simple Direct Registration / Login Form */}
-          <form onSubmit={handleLoginOrCreate} className="space-y-3 p-3.5 rounded border border-[#262626] bg-[#161616]">
-            <div>
-              <span className="text-xs font-mono font-bold text-white block mb-0.5">
-                Регистрация / Вход
-              </span>
-              <p className="text-[11px] font-mono text-[#777777] leading-relaxed mb-3">
-                Введите никнейм. Если аккаунта еще нет — он создастся автоматически, и ваш рейтинг будет сохраняться!
-              </p>
-            </div>
+          {successMsg && (
+            <span className="text-xs text-emerald-400 font-mono block p-2 rounded bg-emerald-950/40 border border-emerald-800 text-center">
+              {successMsg}
+            </span>
+          )}
 
-            <div>
-              <label className="text-[10px] font-mono text-[#888888] uppercase tracking-wider block mb-1">
-                Никнейм игрока:
-              </label>
-              <div className="relative">
-                <User className="w-3.5 h-3.5 text-[#666666] absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  value={usernameInput}
-                  onChange={(e) => {
-                    setUsernameInput(e.target.value);
-                    setError(null);
-                  }}
-                  placeholder="Например, Kirill"
-                  maxLength={20}
-                  className="w-full bg-[#1A1A1A] border border-[#333333] rounded pl-8 pr-3 py-1.5 text-xs font-mono text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#1baca6]"
-                />
+          {/* If already logged in: show logout and switch account buttons instead of inputs */}
+          {isLoggedIn && !isSwitchingAccount ? (
+            <div className="space-y-3 p-3.5 rounded border border-[#262626] bg-[#161616]">
+              <div>
+                <span className="text-xs font-mono font-bold text-white block mb-0.5">
+                  Управление сессией
+                </span>
+                <p className="text-[11px] font-mono text-[#777777] leading-relaxed">
+                  Вы авторизованы как <strong className="text-[#EDEDED]">{currentUser.username}</strong>. Ваши победы, рейтинг и решенные задачи сохраняются.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full py-2 bg-rose-950/60 hover:bg-rose-900/80 border border-rose-800/80 text-rose-200 font-mono text-xs font-bold rounded flex items-center justify-center gap-2 transition-colors shadow-sm"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Выйти из профиля</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsSwitchingAccount(true)}
+                  className="w-full py-2 bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-[#CCCCCC] hover:text-white font-mono text-xs rounded flex items-center justify-center gap-2 transition-colors"
+                >
+                  <User className="w-3.5 h-3.5 text-[#1baca6]" />
+                  <span>Войти под другим профилем</span>
+                </button>
               </div>
             </div>
-
-            <div>
-              <label className="text-[10px] font-mono text-[#888888] uppercase tracking-wider block mb-1">
-                Пароль (обязательно):
-              </label>
-              <div className="relative">
-                <Lock className="w-3.5 h-3.5 text-[#666666] absolute left-3 top-2.5" />
-                <input
-                  type="password"
-                  value={passwordInput}
-                  onChange={(e) => {
-                    setPasswordInput(e.target.value);
-                    setError(null);
-                  }}
-                  placeholder="Минимум 3 символа"
-                  required
-                  className="w-full bg-[#1A1A1A] border border-[#333333] rounded pl-8 pr-3 py-1.5 text-xs font-mono text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#1baca6]"
-                />
+          ) : (
+            /* Simple Direct Registration / Login Form */
+            <form onSubmit={handleLoginOrCreate} className="space-y-3 p-3.5 rounded border border-[#262626] bg-[#161616]">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-mono font-bold text-white block mb-0.5">
+                    {isSwitchingAccount ? 'Смена профиля' : 'Регистрация / Вход'}
+                  </span>
+                  <p className="text-[11px] font-mono text-[#777777] leading-relaxed">
+                    Введите никнейм и пароль для входа или создания нового аккаунта.
+                  </p>
+                </div>
+                {isSwitchingAccount && (
+                  <button
+                    type="button"
+                    onClick={() => setIsSwitchingAccount(false)}
+                    className="text-[11px] font-mono text-[#777777] hover:text-white underline shrink-0 ml-2"
+                  >
+                    Отмена
+                  </button>
+                )}
               </div>
-            </div>
 
-            {error && (
-              <span className="text-[11px] text-[#ca3431] font-mono block">
-                {error}
-              </span>
-            )}
+              <div>
+                <label className="text-[10px] font-mono text-[#888888] uppercase tracking-wider block mb-1">
+                  Никнейм игрока:
+                </label>
+                <div className="relative">
+                  <User className="w-3.5 h-3.5 text-[#666666] absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={usernameInput}
+                    onChange={(e) => {
+                      setUsernameInput(e.target.value);
+                      setError(null);
+                    }}
+                    placeholder="Например, Kirill"
+                    maxLength={20}
+                    className="w-full bg-[#1A1A1A] border border-[#333333] rounded pl-8 pr-3 py-1.5 text-xs font-mono text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#1baca6]"
+                  />
+                </div>
+              </div>
 
-            {successMsg && (
-              <span className="text-[11px] text-emerald-400 font-mono block">
-                {successMsg}
-              </span>
-            )}
+              <div>
+                <label className="text-[10px] font-mono text-[#888888] uppercase tracking-wider block mb-1">
+                  Пароль (обязательно):
+                </label>
+                <div className="relative">
+                  <Lock className="w-3.5 h-3.5 text-[#666666] absolute left-3 top-2.5" />
+                  <input
+                    type="password"
+                    value={passwordInput}
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      setError(null);
+                    }}
+                    placeholder="Минимум 3 символа"
+                    required
+                    className="w-full bg-[#1A1A1A] border border-[#333333] rounded pl-8 pr-3 py-1.5 text-xs font-mono text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#1baca6]"
+                  />
+                </div>
+              </div>
 
-            <button
-              type="submit"
-              className="w-full py-2 bg-[#1baca6] hover:bg-[#189d97] text-[#0A0A0A] font-mono text-xs font-bold rounded flex items-center justify-center gap-1.5 transition-colors shadow-sm"
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Войти / Зарегистрироваться</span>
-            </button>
-          </form>
+              {error && (
+                <span className="text-[11px] text-[#ca3431] font-mono block">
+                  {error}
+                </span>
+              )}
+
+              <button
+                type="submit"
+                className="w-full py-2 bg-[#1baca6] hover:bg-[#189d97] text-[#0A0A0A] font-mono text-xs font-bold rounded flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Войти / Зарегистрироваться</span>
+              </button>
+            </form>
+          )}
 
           {/* Social Auth0 Button (if configured by owner) */}
           {isAuth0Configured() && (

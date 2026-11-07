@@ -286,23 +286,29 @@ class MultiplayerService {
   public createRankedAiMatch(player: UserProfile): RankedMatchSession {
     const elo = player.elo;
     let aiDifficultyId = 'casual';
-    let aiElo = 100;
+    let aiElo = elo;
 
     if (elo <= 200) {
+      aiDifficultyId = 'novice';
+      aiElo = Math.max(50, Math.round(elo + (Math.random() * 10 - 5)));
+    } else if (elo <= 450) {
       aiDifficultyId = 'beginner';
-      aiElo = Math.max(80, elo + (Math.random() > 0.5 ? 10 : -10));
-    } else if (elo <= 500) {
+      aiElo = Math.round(elo + (Math.random() * 20 - 10));
+    } else if (elo <= 800) {
       aiDifficultyId = 'casual';
+      aiElo = Math.round(elo + (Math.random() * 30 - 15));
+    } else if (elo <= 1200) {
+      aiDifficultyId = 'fast';
       aiElo = Math.round(elo + (Math.random() * 40 - 20));
-    } else if (elo <= 900) {
-      aiDifficultyId = 'intermediate';
+    } else if (elo <= 1600) {
+      aiDifficultyId = 'club';
       aiElo = Math.round(elo + (Math.random() * 50 - 25));
-    } else if (elo <= 1400) {
-      aiDifficultyId = 'advanced';
-      aiElo = Math.round(elo + (Math.random() * 60 - 30));
+    } else if (elo <= 2000) {
+      aiDifficultyId = 'expert';
+      aiElo = Math.round(elo + (Math.random() * 40 - 20));
     } else {
       aiDifficultyId = 'master';
-      aiElo = Math.round(elo + 20);
+      aiElo = Math.round(elo + 15);
     }
 
     const session: RankedMatchSession = {
@@ -311,7 +317,7 @@ class MultiplayerService {
       myColor: Math.random() > 0.5 ? 'w' : 'b',
       opponent: {
         id: `bot_ranked_${aiDifficultyId}`,
-        username: `Stockfish (${aiElo} ELO)`,
+        username: `ИИ ${aiDifficultyId === 'novice' ? 'Ученик' : aiDifficultyId === 'beginner' ? 'Новичок' : 'Бот'} (${aiElo} ELO)`,
         elo: aiElo,
         isAi: true,
         aiDifficultyId

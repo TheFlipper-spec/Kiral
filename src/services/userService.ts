@@ -257,6 +257,30 @@ class UserService {
     return { success: true, user };
   }
 
+  public logoutUser(): UserProfile {
+    let guest = this.users.find(u => !u.isRegistered || u.authProvider === 'guest');
+    if (!guest) {
+      guest = {
+        id: `guest-${Date.now().toString(36)}`,
+        username: 'Гость',
+        isRegistered: false,
+        elo: 100,
+        puzzlePoints: 0,
+        solvedPuzzleIds: [],
+        friends: [],
+        stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
+        authProvider: 'guest',
+        createdAt: new Date().toISOString().slice(0, 10),
+        lastActiveAt: new Date().toISOString()
+      };
+      this.users.push(guest);
+    }
+    this.currentUserId = guest.id;
+    localStorage.setItem(STORAGE_CURRENT_USER_ID, guest.id);
+    this.saveUsers();
+    return guest;
+  }
+
   public syncAuth0User(auth0User: {
     sub?: string;
     nickname?: string;

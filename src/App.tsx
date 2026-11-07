@@ -6,6 +6,9 @@ import { ChessboardArea } from './components/ChessboardArea';
 import type { MoveAccentInfo, BoardPlayerBarInfo } from './components/ChessboardArea';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { PuzzlePanel } from './components/PuzzlePanel';
+import { LearnPanel } from './components/LearnPanel';
+import { CHESS_OPENINGS } from './data/openings';
+import type { ChessOpening } from './data/openings';
 import { LoadGameModal } from './components/LoadGameModal';
 import { gameAnalyzer, uciToSan } from './engine/gameAnalyzer';
 import type { AnalysisProgress } from './engine/gameAnalyzer';
@@ -91,6 +94,11 @@ export const App: React.FC = () => {
   const [solvedPuzzlesCount, setSolvedPuzzlesCount] = useState<number>(0);
   const [totalAttemptedPuzzles, setTotalAttemptedPuzzles] = useState<number>(0);
   const [puzzleDifficultyFilter, setPuzzleDifficultyFilter] = useState<'all' | 'easy' | 'medium' | 'hard'>('all');
+
+  // Learn / Openings state
+  const [activeLearnTab, setActiveLearnTab] = useState<'puzzles' | 'openings'>('puzzles');
+  const [currentOpening, setCurrentOpening] = useState<ChessOpening>(CHESS_OPENINGS[0]);
+  const [openingStepIndex, setOpeningStepIndex] = useState<number>(0);
 
   // Board & Review state
   const [currentPgn, setCurrentPgn] = useState<string>(SAMPLE_GAMES[0].pgn);
@@ -532,6 +540,24 @@ export const App: React.FC = () => {
         const aiMoveEval = await stockfish.getAiMove(fenToRespondTo, aiDepth);
         let chosenUci = aiMoveEval.bestMove;
 
+        // Human-like blunder & casual move simulator for low ELO (< 300) bots
+        const activeOpp = activeRankedSessionRef.current?.opponent;
+        const oppElo = activeOpp?.elo;
+        const isNoviceDifficulty = aiDifficultyId === 'novice' || (oppElo !== undefined && oppElo <= 300);
+        if (isNoviceDifficulty) {
+          const blunderChance = oppElo && oppElo <= 120 ? 0.65 : 0.40;
+          if (Math.random() < blunderChance) {
+            const legalMoves = chess.moves({ verbose: true });
+            if (legalMoves.length > 0) {
+              // Prefer natural non-capturing moves or quiet piece moves
+              const quietMoves = legalMoves.filter((m) => !m.captured);
+              const pool = quietMoves.length > 0 ? quietMoves : legalMoves;
+              const randomPick = pool[Math.floor(Math.random() * pool.length)];
+              chosenUci = `${randomPick.from}${randomPick.to}${randomPick.promotion || ''}`;
+            }
+          }
+        }
+
         // Fallback: If engine didn't return a move, pick legal move
         if (!chosenUci || chosenUci.length < 4) {
           const legalMoves = chess.moves({ verbose: true });
@@ -574,56 +600,59 @@ export const App: React.FC = () => {
 
             if (chess.isGameOver()) {
               const over = checkGameOverStatus(chess);
-              if (gameModeRef.current === 'ranked' && activeRankedSessionRef.current) {
-                const opp = activeRankedSessionRef.current.opponent;
-                if (chess.isCheckmate()) {
-                  const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'loss');
-                  setCurrentUser(userService.getCurrentUser());
-                  setGameOverMessage(`${over} • ${matchRes.message}`);
-                  sound.playDefeat();
-                  sound.speak(`Поражение. ${matchRes.eloChange} Эло.`);
-                  setScoreDelta({
-                    id: `elo-${Date.now()}`,
-                    type: 'elo',
-                    title: `Поражение против ${opp.username}`,
-                    delta: matchRes.eloChange,
-                    oldValue: matchRes.oldElo,
-                    newValue: matchRes.newElo,
-                    unit: 'ELO',
-                    isPositive: false
-                  });
-                } else if (chess.isDraw() || chess.isStalemate()) {
-                  const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
-                  setCurrentUser(userService.getCurrentUser());
-                  setGameOverMessage(`${over} • ${matchRes.message}`);
-                  setScoreDelta({
-                    id: `elo-${Date.now()}`,
-                    type: 'elo',
-                    title: 'Ничья',
-                    delta: 0,
-                    oldValue: matchRes.oldElo,
-                    newValue: matchRes.newElo,
-                    unit: 'ELO',
-                    isPositive: false,
-                    isNeutral: true
-                  });
+              const isMate = chess.isCheckmate();
+              setTimeout(() => {
+                if (gameModeRef.current === 'ranked' && activeRankedSessionRef.current) {
+                  const opp = activeRankedSessionRef.current.opponent;
+                  if (chess.isCheckmate()) {
+                    const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'loss');
+                    setCurrentUser(userService.getCurrentUser());
+                    setGameOverMessage(`${over} • ${matchRes.message}`);
+                    sound.playDefeat();
+                    sound.speak(`Поражение. ${matchRes.eloChange} Эло.`);
+                    setScoreDelta({
+                      id: `elo-${Date.now()}`,
+                      type: 'elo',
+                      title: `Поражение против ${opp.username}`,
+                      delta: matchRes.eloChange,
+                      oldValue: matchRes.oldElo,
+                      newValue: matchRes.newElo,
+                      unit: 'ELO',
+                      isPositive: false
+                    });
+                  } else if (chess.isDraw() || chess.isStalemate()) {
+                    const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
+                    setCurrentUser(userService.getCurrentUser());
+                    setGameOverMessage(`${over} • ${matchRes.message}`);
+                    setScoreDelta({
+                      id: `elo-${Date.now()}`,
+                      type: 'elo',
+                      title: 'Ничья',
+                      delta: 0,
+                      oldValue: matchRes.oldElo,
+                      newValue: matchRes.newElo,
+                      unit: 'ELO',
+                      isPositive: false,
+                      isNeutral: true
+                    });
+                  } else {
+                    setGameOverMessage(over);
+                  }
+                } else if (gameModeRef.current === 'vs-ai') {
+                  if (chess.isCheckmate()) {
+                    userService.recordCasualMatch('loss');
+                    setCurrentUser(userService.getCurrentUser());
+                    sound.playDefeat();
+                    sound.speak('Поражение в тренировочном матче');
+                  } else if (chess.isDraw() || chess.isStalemate()) {
+                    userService.recordCasualMatch('draw');
+                    setCurrentUser(userService.getCurrentUser());
+                  }
+                  setGameOverMessage(over);
                 } else {
                   setGameOverMessage(over);
                 }
-              } else if (gameModeRef.current === 'vs-ai') {
-                if (chess.isCheckmate()) {
-                  userService.recordCasualMatch('loss');
-                  setCurrentUser(userService.getCurrentUser());
-                  sound.playDefeat();
-                  sound.speak('Поражение в тренировочном матче');
-                } else if (chess.isDraw() || chess.isStalemate()) {
-                  userService.recordCasualMatch('draw');
-                  setCurrentUser(userService.getCurrentUser());
-                }
-                setGameOverMessage(over);
-              } else {
-                setGameOverMessage(over);
-              }
+              }, isMate ? 1200 : 0);
             }
 
             // Objectively evaluate AI move and update report & EvalBar
@@ -780,6 +809,24 @@ export const App: React.FC = () => {
       }
     }
 
+    if ((gameMode === 'learn' || gameMode === 'puzzles') && activeLearnTab === 'openings') {
+      const step = currentOpening.moves[openingStepIndex];
+      if (!step) return false;
+      const playedUci = `${sourceSquare}${targetSquare}`;
+      const targetUci = `${step.from}${step.to}`;
+      if (playedUci.toLowerCase() === targetUci.toLowerCase()) {
+        const nextIdx = openingStepIndex + 1;
+        applyOpeningStep(currentOpening, nextIdx);
+        sound.playMove();
+        sound.speak(`${step.san}. ${step.explanation}`);
+        return true;
+      } else {
+        sound.playBlunder();
+        sound.speak(`В дебюте ${currentOpening.nameRu} рекомендуется ход ${step.san}. Попробуйте еще раз!`);
+        return false;
+      }
+    }
+
     let moveResult: Move | null = null;
     try {
       moveResult = chess.move({
@@ -832,80 +879,83 @@ export const App: React.FC = () => {
 
     const overStatus = checkGameOverStatus(chess);
     if (overStatus) {
-      if (gameMode === 'ranked' && activeRankedSession) {
-        const opp = activeRankedSession.opponent;
-        if (chess.isCheckmate()) {
-          const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'win');
-          if (activeRankedSession.isOnlinePvP) {
-            const newOppElo = userService.applyOpponentMatchResult(
-              opp.id,
-              opp.username,
-              opp.elo,
-              matchRes.oldElo,
-              'loss'
-            );
-            setActiveRankedSession((prev) =>
-              prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
-            );
+      const isMate = chess.isCheckmate();
+      setTimeout(() => {
+        if (gameMode === 'ranked' && activeRankedSession) {
+          const opp = activeRankedSession.opponent;
+          if (chess.isCheckmate()) {
+            const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'win');
+            if (activeRankedSession.isOnlinePvP) {
+              const newOppElo = userService.applyOpponentMatchResult(
+                opp.id,
+                opp.username,
+                opp.elo,
+                matchRes.oldElo,
+                'loss'
+              );
+              setActiveRankedSession((prev) =>
+                prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
+              );
+            }
+            setCurrentUser(userService.getCurrentUser());
+            setGameOverMessage(`${overStatus} • ${matchRes.message}`);
+            sound.playVictory();
+            sound.speak(`Победа! Плюс ${matchRes.eloChange} Эло.`);
+            setScoreDelta({
+              id: `elo-${Date.now()}`,
+              type: 'elo',
+              title: `Победа над ${opp.username}`,
+              delta: matchRes.eloChange,
+              oldValue: matchRes.oldElo,
+              newValue: matchRes.newElo,
+              unit: 'ELO',
+              isPositive: true
+            });
+          } else if (chess.isDraw() || chess.isStalemate()) {
+            const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
+            if (activeRankedSession.isOnlinePvP) {
+              const newOppElo = userService.applyOpponentMatchResult(
+                opp.id,
+                opp.username,
+                opp.elo,
+                matchRes.oldElo,
+                'draw'
+              );
+              setActiveRankedSession((prev) =>
+                prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
+              );
+            }
+            setCurrentUser(userService.getCurrentUser());
+            setGameOverMessage(`${overStatus} • ${matchRes.message}`);
+            setScoreDelta({
+              id: `elo-${Date.now()}`,
+              type: 'elo',
+              title: 'Ничья',
+              delta: 0,
+              oldValue: matchRes.oldElo,
+              newValue: matchRes.newElo,
+              unit: 'ELO',
+              isPositive: false,
+              isNeutral: true
+            });
+          } else {
+            setGameOverMessage(overStatus);
           }
-          setCurrentUser(userService.getCurrentUser());
-          setGameOverMessage(`${overStatus} • ${matchRes.message}`);
-          sound.playVictory();
-          sound.speak(`Победа! Плюс ${matchRes.eloChange} Эло.`);
-          setScoreDelta({
-            id: `elo-${Date.now()}`,
-            type: 'elo',
-            title: `Победа над ${opp.username}`,
-            delta: matchRes.eloChange,
-            oldValue: matchRes.oldElo,
-            newValue: matchRes.newElo,
-            unit: 'ELO',
-            isPositive: true
-          });
-        } else if (chess.isDraw() || chess.isStalemate()) {
-          const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
-          if (activeRankedSession.isOnlinePvP) {
-            const newOppElo = userService.applyOpponentMatchResult(
-              opp.id,
-              opp.username,
-              opp.elo,
-              matchRes.oldElo,
-              'draw'
-            );
-            setActiveRankedSession((prev) =>
-              prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
-            );
+        } else if (gameMode === 'vs-ai') {
+          if (chess.isCheckmate()) {
+            userService.recordCasualMatch('win');
+            setCurrentUser(userService.getCurrentUser());
+            sound.playVictory();
+            sound.speak('Победа в тренировочном матче!');
+          } else if (chess.isDraw() || chess.isStalemate()) {
+            userService.recordCasualMatch('draw');
+            setCurrentUser(userService.getCurrentUser());
           }
-          setCurrentUser(userService.getCurrentUser());
-          setGameOverMessage(`${overStatus} • ${matchRes.message}`);
-          setScoreDelta({
-            id: `elo-${Date.now()}`,
-            type: 'elo',
-            title: 'Ничья',
-            delta: 0,
-            oldValue: matchRes.oldElo,
-            newValue: matchRes.newElo,
-            unit: 'ELO',
-            isPositive: false,
-            isNeutral: true
-          });
+          setGameOverMessage(overStatus);
         } else {
           setGameOverMessage(overStatus);
         }
-      } else if (gameMode === 'vs-ai') {
-        if (chess.isCheckmate()) {
-          userService.recordCasualMatch('win');
-          setCurrentUser(userService.getCurrentUser());
-          sound.playVictory();
-          sound.speak('Победа в тренировочном матче!');
-        } else if (chess.isDraw() || chess.isStalemate()) {
-          userService.recordCasualMatch('draw');
-          setCurrentUser(userService.getCurrentUser());
-        }
-        setGameOverMessage(overStatus);
-      } else {
-        setGameOverMessage(overStatus);
-      }
+      }, isMate ? 1200 : 0);
     } else {
       setGameOverMessage(null);
     }
@@ -1087,6 +1137,33 @@ export const App: React.FC = () => {
       console.error(err);
     }
   }, [currentPuzzleIndex]);
+
+  const applyOpeningStep = useCallback((opening: ChessOpening, stepIdx: number) => {
+    const chess = new Chess();
+    for (let i = 0; i < stepIdx && i < opening.moves.length; i++) {
+      const m = opening.moves[i];
+      try {
+        chess.move({ from: m.from, to: m.to });
+      } catch {}
+    }
+    const fen = chess.fen();
+    setFens([fen]);
+    setCurrentPly(0);
+    setOpeningStepIndex(stepIdx);
+  }, []);
+
+  const handleSelectOpening = useCallback((op: ChessOpening) => {
+    setCurrentOpening(op);
+    applyOpeningStep(op, 0);
+  }, [applyOpeningStep]);
+
+  const handleOpeningStepChange = useCallback((stepIdx: number) => {
+    applyOpeningStep(currentOpening, stepIdx);
+  }, [currentOpening, applyOpeningStep]);
+
+  const handleResetOpening = useCallback(() => {
+    applyOpeningStep(currentOpening, 0);
+  }, [currentOpening, applyOpeningStep]);
 
   const handleChangeAiDifficulty = (diffId: string) => {
     setAiDifficultyId(diffId);
@@ -1687,8 +1764,12 @@ export const App: React.FC = () => {
       startVsAiGame(playerColor);
     } else if (newMode === 'pvp') {
       startPvpGame();
-    } else if (newMode === 'puzzles') {
-      startPuzzlesMode(currentPuzzleIndex);
+    } else if (newMode === 'learn' || newMode === 'puzzles') {
+      if (activeLearnTab === 'openings') {
+        applyOpeningStep(currentOpening, openingStepIndex);
+      } else {
+        startPuzzlesMode(currentPuzzleIndex);
+      }
     } else {
       setGameOverMessage(null);
       loadPgnIntoState(currentPgn, gameTitle);
@@ -1738,8 +1819,12 @@ export const App: React.FC = () => {
       startVsAiGame(playerColor);
     } else if (gameMode === 'pvp') {
       startPvpGame();
-    } else if (gameMode === 'puzzles') {
-      handleRandomPuzzle();
+    } else if (gameMode === 'learn' || gameMode === 'puzzles') {
+      if (activeLearnTab === 'openings') {
+        handleResetOpening();
+      } else {
+        handleRandomPuzzle();
+      }
     } else {
       gameAnalyzer.cancel();
       stockfish.clearQueue();
@@ -1904,7 +1989,8 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#0A0A0A] text-[#EDEDED] font-sans">
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#0A0A0A] text-[#EDEDED] font-sans relative">
+      <ScoreDeltaNotification data={scoreDelta} onDismiss={() => setScoreDelta(null)} />
       <Header
         gameMode={gameMode}
         onChangeMode={handleChangeMode}
@@ -1964,9 +2050,8 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      <main className="flex-1 grid grid-cols-1 grid-rows-[auto_1fr] landscape:grid-rows-1 landscape:grid-cols-[1fr_340px] md:landscape:grid-cols-[1fr_400px] lg:grid-rows-1 lg:grid-cols-[1fr_420px] overflow-hidden">
+      <main className="flex-1 grid grid-cols-1 grid-rows-[auto_1fr] landscape:grid-rows-1 landscape:grid-cols-[1fr_340px] md:landscape:grid-cols-[1fr_400px] lg:grid-rows-1 lg:grid-cols-[1fr_440px] xl:grid-cols-[1fr_480px] overflow-hidden">
         <section className="relative h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A] px-1 py-1 sm:p-2">
-          <ScoreDeltaNotification data={scoreDelta} onDismiss={() => setScoreDelta(null)} />
           <ChessboardArea
             fen={currentFen}
             isFlipped={isFlipped}
@@ -1999,7 +2084,6 @@ export const App: React.FC = () => {
             isOpponentFriend={isOpponentFriend}
             onToggleOpponentFriend={handleToggleOpponentFriend}
             onOpenTopPlayerProfile={handleOpenOpponentProfile}
-            onOpenBottomPlayerProfile={() => setSelectedProfileUser(currentUser)}
             canResign={(gameMode === 'ranked' || gameMode === 'vs-ai') && !gameOverMessage && fens.length > 1}
             onResignGame={handleResignCurrentGame}
             canUndoMove={canUndoMove}
@@ -2008,20 +2092,34 @@ export const App: React.FC = () => {
         </section>
 
         <section className="h-full overflow-hidden">
-          {gameMode === 'puzzles' ? (
-            <PuzzlePanel
+          {gameMode === 'learn' || gameMode === 'puzzles' ? (
+            <LearnPanel
+              activeTab={activeLearnTab}
+              onTabChange={(tab) => {
+                setActiveLearnTab(tab);
+                if (tab === 'openings') {
+                  applyOpeningStep(currentOpening, openingStepIndex);
+                } else {
+                  startPuzzlesMode(currentPuzzleIndex);
+                }
+              }}
               puzzle={PUZZLES[currentPuzzleIndex] || PUZZLES[0]}
-              status={puzzleStatus}
-              currentStep={puzzleStep}
+              puzzleStatus={puzzleStatus}
+              puzzleCurrentStep={puzzleStep}
               mistakeAnalysis={puzzleMistakeAnalysis}
               onNextPuzzle={handleNextPuzzle}
               onRandomPuzzle={handleRandomPuzzle}
-              onRetry={handleRetryPuzzle}
-              onShowSolution={handleShowSolution}
+              onRetryPuzzle={handleRetryPuzzle}
+              onShowPuzzleSolution={handleShowSolution}
               solvedCount={solvedPuzzlesCount}
               totalAttempted={totalAttemptedPuzzles}
               filterDifficulty={puzzleDifficultyFilter}
               onChangeFilter={setPuzzleDifficultyFilter}
+              currentOpening={currentOpening}
+              openingStepIndex={openingStepIndex}
+              onSelectOpening={handleSelectOpening}
+              onOpeningStepChange={handleOpeningStepChange}
+              onResetOpening={handleResetOpening}
             />
           ) : (
             <AnalysisPanel

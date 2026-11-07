@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, RotateCcw, BookOpen, Swords, Users, Target, Trophy, User, Cloud, Download, UserPlus, BarChart2, Undo2 } from 'lucide-react';
+import { Upload, RotateCcw, BookOpen, Swords, Users, Target, Trophy, User, Cloud, Download, GraduationCap, Undo2 } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
 import type { ScoreDeltaData } from './ScoreDeltaNotification';
 
-export type GameMode = 'review' | 'vs-ai' | 'pvp' | 'puzzles' | 'ranked';
+export type GameMode = 'review' | 'vs-ai' | 'pvp' | 'puzzles' | 'ranked' | 'learn';
 
 interface HeaderProps {
   gameMode: GameMode;
@@ -128,15 +128,16 @@ export const Header: React.FC<HeaderProps> = ({
         <span>1 на 1</span>
       </button>
       <button
-        onClick={() => onChangeMode('puzzles')}
+        onClick={() => onChangeMode('learn')}
         className={`${isMobileBar ? 'flex-1 justify-center px-1 py-1 text-[11px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-1 whitespace-nowrap transition-colors ${
-          gameMode === 'puzzles'
+          gameMode === 'learn' || gameMode === 'puzzles'
             ? 'bg-[#222222] text-[#96bc4b] font-semibold'
             : 'text-[#777777] hover:text-[#CCCCCC]'
         }`}
+        title="Обучение: Тактические задачи и Школа дебютов"
       >
-        <Target className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" strokeWidth={1.5} />
-        <span>Задачи</span>
+        <GraduationCap className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" strokeWidth={1.5} />
+        <span>Обучение</span>
       </button>
     </div>
   );
@@ -343,42 +344,15 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden 2xl:inline">Приложение</span>
           </button>
 
-          {/* Friends & Players button */}
-          <button
-            onClick={onOpenFriends || onOpenLeaderboard}
-            className="p-1.5 sm:px-2 sm:py-1 rounded text-[#CCCCCC] hover:text-[#1baca6] hover:bg-[#1C1C1C] border border-[#262626] transition-colors flex items-center gap-1 text-xs font-mono whitespace-nowrap shrink-0"
-            title="Друзья, поиск игроков и профили"
-          >
-            <UserPlus className="w-3.5 h-3.5 text-[#1baca6]" strokeWidth={1.5} />
-            <span className="hidden lg:inline">Друзья</span>
-            {currentUser?.friends && currentUser.friends.length > 0 && (
-              <span className="px-1 rounded bg-[#1baca6]/20 text-[#1baca6] text-[10px] font-bold">
-                {currentUser.friends.length}
-              </span>
-            )}
-          </button>
-
           {/* Leaderboard button */}
           <button
             onClick={onOpenLeaderboard}
-            className="p-1.5 sm:px-2 sm:py-1 rounded text-[#CCCCCC] hover:text-[#f0c15c] hover:bg-[#1C1C1C] border border-[#262626] transition-colors flex items-center gap-1 text-xs font-mono whitespace-nowrap shrink-0"
+            className="p-1.5 sm:px-2.5 sm:py-1 rounded text-[#CCCCCC] hover:text-[#f0c15c] hover:bg-[#1C1C1C] border border-[#262626] transition-colors flex items-center gap-1.5 text-xs font-mono whitespace-nowrap shrink-0"
             title="Таблица лидеров (Топ по задачам и Эло)"
           >
             <Trophy className="w-3.5 h-3.5 text-[#f0c15c]" strokeWidth={1.5} />
-            <span className="hidden lg:inline">Топ</span>
+            <span className="hidden sm:inline">Топ</span>
           </button>
-
-          {/* My Profile Stats button */}
-          {onOpenMyProfile && (
-            <button
-              onClick={onOpenMyProfile}
-              className="hidden sm:flex p-1.5 sm:px-2 sm:py-1 rounded text-[#CCCCCC] hover:text-white hover:bg-[#1C1C1C] border border-[#262626] transition-colors items-center gap-1 text-xs font-mono whitespace-nowrap shrink-0"
-              title="Моя статистика (Победы, Ничьи, Поражения)"
-            >
-              <BarChart2 className="w-3.5 h-3.5 text-emerald-400" strokeWidth={1.5} />
-              <span className="hidden xl:inline">Стата</span>
-            </button>
-          )}
 
           {/* User profile button with floating score delta animation */}
           {currentUser && (

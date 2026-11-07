@@ -68,7 +68,7 @@ export const ScoreDeltaNotification: React.FC<ScoreDeltaNotificationProps> = ({ 
   };
 
   return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 pointer-events-auto animate-score-pop">
+    <div className="fixed top-14 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto animate-score-pop">
       <div className={`flex items-center gap-3 px-4 py-2.5 rounded-lg border backdrop-blur-md shadow-2xl ${getAccentColor()}`}>
         <div className="flex items-center justify-center w-8 h-8 rounded border border-white/10 bg-black/40">
           {data.type === 'puzzle' ? (
