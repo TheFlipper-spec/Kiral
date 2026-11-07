@@ -1,0 +1,185 @@
+import React, { useState } from 'react';
+import { X, User, Trophy, Target, UserPlus, UserCheck, Swords, CheckCircle2 } from 'lucide-react';
+import type { UserProfile } from '../services/userService';
+import { userService } from '../services/userService';
+
+interface UserProfileModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  targetUser: UserProfile | null;
+  currentUser: UserProfile;
+  onChallengePlayer?: (user: UserProfile) => void;
+}
+
+export const UserProfileModal: React.FC<UserProfileModalProps> = ({
+  isOpen,
+  onClose,
+  targetUser,
+  currentUser,
+  onChallengePlayer
+}) => {
+  const [challenged, setChallenged] = useState(false);
+
+  if (!isOpen || !targetUser) return null;
+
+  const isMe = targetUser.id === currentUser.id;
+  const isFriend = userService.isFriend(targetUser.id);
+
+  const totalGames = targetUser.stats.totalGames || 0;
+  const wins = targetUser.stats.wins || 0;
+  const losses = targetUser.stats.losses || 0;
+  const draws = targetUser.stats.draws || 0;
+  const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
+
+  const handleToggleFriend = () => {
+    userService.toggleFriend(targetUser.id);
+    // Trigger re-render
+    setChallenged((prev) => !prev);
+  };
+
+  const handleChallenge = () => {
+    setChallenged(true);
+    if (onChallengePlayer) {
+      onChallengePlayer(targetUser);
+    }
+    setTimeout(() => setChallenged(false), 4000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+      <div className="bg-[#121212] border border-[#262626] rounded-xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col">
+        {/* Header bar */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#262626] bg-[#0E0E0E]">
+          <span className="text-xs font-mono uppercase tracking-wider text-[#888888]">
+            Профиль игрока
+          </span>
+          <button
+            onClick={onClose}
+            className="p-1 rounded text-[#777777] hover:text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors"
+          >
+            <X className="w-4 h-4" strokeWidth={1.5} />
+          </button>
+        </div>
+
+        {/* Profile Card */}
+        <div className="p-5 flex flex-col items-center text-center">
+          {/* Avatar */}
+          <div className="relative mb-3">
+            {targetUser.avatarUrl ? (
+              <img
+                src={targetUser.avatarUrl}
+                alt={targetUser.username}
+                className="w-16 h-16 rounded-full border-2 border-[#1baca6] object-cover"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-[#1C1C1C] border-2 border-[#262626] flex items-center justify-center text-[#1baca6]">
+                <User className="w-8 h-8" strokeWidth={1.5} />
+              </div>
+            )}
+            <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-emerald-500 border-2 border-[#121212]" />
+          </div>
+
+          <h3 className="text-base font-bold text-white font-mono mb-1">
+            {targetUser.username}
+          </h3>
+          <span className="text-[11px] font-mono text-[#777777] mb-4">
+            В игре с {targetUser.createdAt || 'ноября 2026'}
+          </span>
+
+          {/* Ratings Grid */}
+          <div className="grid grid-cols-2 gap-2 w-full mb-4">
+            <div className="p-2.5 rounded-lg bg-[#181818] border border-[#262626] flex items-center gap-2.5">
+              <div className="p-1.5 rounded bg-[#1baca6]/15 text-[#1baca6]">
+                <Trophy className="w-4 h-4" strokeWidth={1.5} />
+              </div>
+              <div className="text-left">
+                <span className="text-[10px] font-mono uppercase text-[#777777] block">Рейтинг ELO</span>
+                <span className="text-sm font-mono font-bold text-white">{targetUser.elo}</span>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-[#181818] border border-[#262626] flex items-center gap-2.5">
+              <div className="p-1.5 rounded bg-[#96bc4b]/15 text-[#96bc4b]">
+                <Target className="w-4 h-4" strokeWidth={1.5} />
+              </div>
+              <div className="text-left">
+                <span className="text-[10px] font-mono uppercase text-[#777777] block">Задачи</span>
+                <span className="text-sm font-mono font-bold text-white">{targetUser.puzzlePoints} б.</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Detailed Match Statistics */}
+          <div className="w-full p-3.5 rounded-lg bg-[#161616] border border-[#262626] mb-4">
+            <div className="flex items-center justify-between mb-2 pb-2 border-b border-[#222222]">
+              <span className="text-[11px] font-mono text-[#888888]">Всего сыграно партий</span>
+              <span className="text-xs font-mono font-bold text-white">{totalGames}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center mb-2">
+              <div className="p-1.5 rounded bg-[#1A1A1A]">
+                <span className="text-[10px] font-mono text-emerald-400 block font-semibold">Победы</span>
+                <span className="text-xs font-mono font-bold text-white">{wins}</span>
+              </div>
+              <div className="p-1.5 rounded bg-[#1A1A1A]">
+                <span className="text-[10px] font-mono text-zinc-400 block font-semibold">Ничьи</span>
+                <span className="text-xs font-mono font-bold text-white">{draws}</span>
+              </div>
+              <div className="p-1.5 rounded bg-[#1A1A1A]">
+                <span className="text-[10px] font-mono text-rose-400 block font-semibold">Поражения</span>
+                <span className="text-xs font-mono font-bold text-white">{losses}</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[11px] font-mono text-[#888888]">Винрейт</span>
+              <span className="text-xs font-mono font-bold text-[#1baca6]">{winRate}%</span>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          {!isMe && (
+            <div className="flex items-center gap-2 w-full">
+              <button
+                onClick={handleToggleFriend}
+                className={`flex-1 py-2 px-3 rounded-lg border text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                  isFriend
+                    ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    : 'bg-[#1C1C1C] border-[#333333] text-white hover:bg-[#252525]'
+                }`}
+              >
+                {isFriend ? (
+                  <>
+                    <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>В друзьях</span>
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-3.5 h-3.5 text-[#1baca6]" />
+                    <span>В друзья</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={handleChallenge}
+                disabled={challenged}
+                className="flex-1 py-2 px-3 rounded-lg bg-[#1baca6] text-black hover:bg-[#20c2bc] text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-75"
+              >
+                {challenged ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Вызов отправлен</span>
+                  </>
+                ) : (
+                  <>
+                    <Swords className="w-3.5 h-3.5" />
+                    <span>Вызвать</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

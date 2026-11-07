@@ -4,9 +4,11 @@ export interface UserProfile {
   id: string;
   username: string;
   password?: string;
+  isRegistered: boolean;
   elo: number;
   puzzlePoints: number;
   solvedPuzzleIds: string[];
+  friends: string[];
   stats: {
     wins: number;
     losses: number;
@@ -20,8 +22,8 @@ export interface UserProfile {
   lastActiveAt?: string;
 }
 
-const STORAGE_USERS_KEY = 'kiral_real_chess_users_v2';
-const STORAGE_CURRENT_USER_ID = 'kiral_chess_current_user_id_v2';
+const STORAGE_USERS_KEY = 'kiral_real_chess_users_v3';
+const STORAGE_CURRENT_USER_ID = 'kiral_chess_current_user_id_v3';
 
 class UserService {
   private users: UserProfile[] = [];
@@ -47,15 +49,17 @@ class UserService {
       if (savedCurrentId && this.users.some(u => u.id === savedCurrentId)) {
         this.currentUserId = savedCurrentId;
       } else {
-        // Create initial real player
+        // Initial guest player (default 100 ELO, not registered)
         let defaultPlayer = this.users[0];
         if (!defaultPlayer) {
           defaultPlayer = {
-            id: `player-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-            username: 'Игрок',
-            elo: 1200,
+            id: `guest-${Date.now().toString(36)}`,
+            username: 'Гость',
+            isRegistered: false,
+            elo: 100,
             puzzlePoints: 0,
             solvedPuzzleIds: [],
+            friends: [],
             stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
             authProvider: 'guest',
             createdAt: new Date().toISOString().slice(0, 10),
@@ -79,7 +83,7 @@ class UserService {
         this.mergePlayers(remotePlayers);
       }
       const current = this.getCurrentUser();
-      if (current) {
+      if (current && current.isRegistered && current.authProvider !== 'guest') {
         cloudDatabase.syncPlayer(current);
       }
     } catch (err) {
@@ -104,19 +108,23 @@ class UserService {
     this.users.forEach((u) => map.set(u.id, u));
 
     remotePlayers.forEach((rem) => {
+      if (rem.authProvider === 'guest') return;
       const existing = map.get(rem.id);
       if (!existing) {
-        map.set(rem.id, rem);
+        map.set(rem.id, { ...rem, isRegistered: true, friends: rem.friends || [] });
       } else {
         const higherElo = Math.max(existing.elo, rem.elo);
         const higherPoints = Math.max(existing.puzzlePoints, rem.puzzlePoints);
         const allSolved = Array.from(new Set([...existing.solvedPuzzleIds, ...rem.solvedPuzzleIds]));
+        const mergedFriends = Array.from(new Set([...(existing.friends || []), ...(rem.friends || [])]));
         map.set(rem.id, {
           ...existing,
           ...rem,
+          isRegistered: true,
           elo: higherElo,
           puzzlePoints: higherPoints,
-          solvedPuzzleIds: allSolved
+          solvedPuzzleIds: allSolved,
+          friends: mergedFriends
         });
       }
     });
@@ -136,33 +144,86 @@ class UserService {
   public getCurrentUser(): UserProfile {
     const user = this.users.find(u => u.id === this.currentUserId);
     if (user) return user;
-    return this.users[0] || {
-      id: 'default',
-      username: 'Игрок',
-      elo: 1200,
+    if (this.users.length > 0) {
+      this.currentUserId = this.users[0].id;
+      return this.users[0];
+    }
+    const fresh: UserProfile = {
+      id: `guest-${Date.now().toString(36)}`,
+      username: 'Гость',
+      isRegistered: false,
+      elo: 100,
       puzzlePoints: 0,
       solvedPuzzleIds: [],
+      friends: [],
       stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
+      authProvider: 'guest',
       createdAt: new Date().toISOString().slice(0, 10)
     };
+    this.users.push(fresh);
+    this.currentUserId = fresh.id;
+    this.saveUsers();
+    return fresh;
+  }
+
+  public getUserById(userId: string): UserProfile | undefined {
+    return this.users.find(u => u.id === userId);
+  }
+
+  public toggleFriend(targetUserId: string): boolean {
+    const currentUser = this.getCurrentUser();
+    if (!currentUser || currentUser.id === targetUserId) return false;
+    if (!currentUser.friends) currentUser.friends = [];
+
+    const idx = currentUser.friends.indexOf(targetUserId);
+    let isNowFriend = false;
+    if (idx >= 0) {
+      currentUser.friends.splice(idx, 1);
+      isNowFriend = false;
+    } else {
+      currentUser.friends.push(targetUserId);
+      isNowFriend = true;
+    }
+
+    this.saveUsers();
+    if (currentUser.isRegistered && currentUser.authProvider !== 'guest') {
+      cloudDatabase.syncPlayer(currentUser);
+    }
+    return isNowFriend;
+  }
+
+  public isFriend(targetUserId: string): boolean {
+    const currentUser = this.getCurrentUser();
+    return Boolean(currentUser?.friends?.includes(targetUserId));
   }
 
   public getAllUsers(): UserProfile[] {
     return [...this.users];
   }
 
-  public loginUser(rawUsername: string, password?: string): { success: boolean; user: UserProfile; error?: string } {
-    const username = rawUsername.trim() || 'Игрок';
+  public loginUser(rawUsername: string, rawPassword?: string): { success: boolean; user: UserProfile; error?: string } {
+    const username = rawUsername.trim();
+    if (!username || username.length < 2) {
+      return { success: false, user: this.getCurrentUser(), error: 'Имя должно содержать от 2 символов' };
+    }
+
+    const password = rawPassword ? rawPassword.trim() : '';
+    if (!password || password.length < 3) {
+      return { success: false, user: this.getCurrentUser(), error: 'Пароль обязателен (минимум 3 символа)' };
+    }
+
     let user = this.users.find(u => u.username.toLowerCase() === username.toLowerCase());
 
     if (!user) {
       user = {
-        id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        id: `player-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
         username,
-        password: password ? password.trim() : undefined,
-        elo: 1200,
+        password,
+        isRegistered: true,
+        elo: 100,
         puzzlePoints: 0,
         solvedPuzzleIds: [],
+        friends: [],
         stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
         authProvider: 'custom',
         createdAt: new Date().toISOString().slice(0, 10),
@@ -170,12 +231,12 @@ class UserService {
       };
       this.users.push(user);
     } else {
-      if (user.password && password && user.password !== password.trim()) {
+      if (user.password && user.password !== password) {
         return { success: false, user: this.getCurrentUser(), error: 'Неверный пароль для этого аккаунта' };
       }
-      if (!user.password && password) {
-        user.password = password.trim();
-      }
+      user.password = password;
+      user.isRegistered = true;
+      user.authProvider = 'custom';
       user.lastActiveAt = new Date().toISOString();
     }
 
@@ -196,13 +257,16 @@ class UserService {
     const id = auth0User.sub || `auth0-${Date.now().toString(36)}`;
     const username = auth0User.nickname || auth0User.name || auth0User.email?.split('@')[0] || 'Игрок';
 
-    let user = this.users.find(u => u.id === id || u.username.toLowerCase() === username.toLowerCase());
+    let existing = this.users.find(u => u.id === id || u.username.toLowerCase() === username.toLowerCase());
 
-    if (!user) {
+    let user: UserProfile;
+    if (!existing) {
       user = {
         id,
         username,
-        elo: 1200,
+        isRegistered: true,
+        friends: [],
+        elo: 100,
         puzzlePoints: 0,
         solvedPuzzleIds: [],
         stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
@@ -214,7 +278,10 @@ class UserService {
       };
       this.users.push(user);
     } else {
+      user = existing;
       user.id = id;
+      user.isRegistered = true;
+      if (!user.friends) user.friends = [];
       user.authProvider = 'auth0';
       if (auth0User.picture) user.avatarUrl = auth0User.picture;
       if (auth0User.email) user.email = auth0User.email;
@@ -237,43 +304,38 @@ class UserService {
   }
 
   /**
-   * Calculates Elo change based on match outcome vs Stockfish bot
-   * Draw gives 0 change as requested: "ничья ничего"
+   * Competitive / Ranked matches (Live PvP or Ranked AI) -> Elo updates
    */
-  public recordMatchResult(
-    botElo: number,
+  public recordCompetitiveMatchResult(
+    opponentElo: number,
     result: 'win' | 'loss' | 'draw'
   ): { eloChange: number; oldElo: number; newElo: number; message: string } {
     const user = this.getCurrentUser();
     const oldElo = user.elo;
 
-    // Standard Chess Elo K-factor
     const K = 32;
-    // Expected score E = 1 / (1 + 10^((botElo - playerElo) / 400))
-    const expected = 1 / (1 + Math.pow(10, (botElo - user.elo) / 400));
+    const expected = 1 / (1 + Math.pow(10, (opponentElo - user.elo) / 400));
 
     let delta = 0;
     if (result === 'win') {
-      // Reward scale: at least +10, up to +36 for defeating hard bot
-      delta = Math.max(10, Math.min(40, Math.round(K * (1 - expected))));
+      delta = Math.max(8, Math.min(40, Math.round(K * (1 - expected))));
       user.stats.wins++;
     } else if (result === 'loss') {
-      // Penalty scale: at least -8, max -32
-      delta = -Math.max(8, Math.min(32, Math.round(K * expected)));
+      delta = -Math.max(6, Math.min(32, Math.round(K * expected)));
       user.stats.losses++;
     } else {
-      // Draw gives nothing (0 delta) as requested
       delta = 0;
       user.stats.draws++;
     }
 
     user.stats.totalGames++;
-    user.elo = Math.max(200, user.elo + delta);
+    user.elo = Math.max(50, user.elo + delta);
     user.lastActiveAt = new Date().toISOString();
     this.saveUsers();
 
-    // Persist to central cloud database
-    cloudDatabase.syncPlayer(user);
+    if (user.isRegistered && user.authProvider !== 'guest') {
+      cloudDatabase.syncPlayer(user);
+    }
 
     let message = '';
     if (result === 'win') {
@@ -285,6 +347,22 @@ class UserService {
     }
 
     return { eloChange: delta, oldElo, newElo: user.elo, message };
+  }
+
+  /**
+   * Casual practice vs AI - does NOT modify Elo as requested
+   */
+  public recordCasualMatch(result: 'win' | 'loss' | 'draw'): void {
+    const user = this.getCurrentUser();
+    if (result === 'win') user.stats.wins++;
+    else if (result === 'loss') user.stats.losses++;
+    else user.stats.draws++;
+    user.stats.totalGames++;
+    user.lastActiveAt = new Date().toISOString();
+    this.saveUsers();
+    if (user.isRegistered && user.authProvider !== 'guest') {
+      cloudDatabase.syncPlayer(user);
+    }
   }
 
   /**
@@ -325,16 +403,20 @@ class UserService {
   }
 
   public getEloLeaderboard(): UserProfile[] {
-    return [...this.users].sort((a, b) => b.elo - a.elo);
+    return this.users
+      .filter((u) => u.isRegistered && u.authProvider !== 'guest')
+      .sort((a, b) => b.elo - a.elo);
   }
 
   public getPuzzlesLeaderboard(): UserProfile[] {
-    return [...this.users].sort((a, b) => {
-      if (b.puzzlePoints !== a.puzzlePoints) {
-        return b.puzzlePoints - a.puzzlePoints;
-      }
-      return b.solvedPuzzleIds.length - a.solvedPuzzleIds.length;
-    });
+    return this.users
+      .filter((u) => u.isRegistered && u.authProvider !== 'guest')
+      .sort((a, b) => {
+        if (b.puzzlePoints !== a.puzzlePoints) {
+          return b.puzzlePoints - a.puzzlePoints;
+        }
+        return b.solvedPuzzleIds.length - a.solvedPuzzleIds.length;
+      });
   }
 }
 

@@ -10,6 +10,14 @@ const redirectUri = typeof window !== 'undefined'
   ? window.location.origin + window.location.pathname
   : '';
 
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => {
+      console.warn('SW registration failed:', err);
+    });
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {config.domain && config.clientId ? (

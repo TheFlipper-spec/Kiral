@@ -8,12 +8,14 @@ interface LeaderboardModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: UserProfile;
+  onSelectUser?: (user: UserProfile) => void;
 }
 
 export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   isOpen,
   onClose,
-  currentUser
+  currentUser,
+  onSelectUser
 }) => {
   const [activeTab, setActiveTab] = useState<'puzzles' | 'elo'>('puzzles');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -125,11 +127,13 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                 return (
                   <div
                     key={user.id}
-                    className={`grid grid-cols-[36px_1fr_90px_70px] items-center px-3 py-2 rounded border text-xs font-mono transition-colors ${
+                    onClick={() => onSelectUser && onSelectUser(user)}
+                    className={`grid grid-cols-[36px_1fr_90px_70px] items-center px-3 py-2 rounded border text-xs font-mono transition-colors cursor-pointer hover:border-[#1baca6]/40 ${
                       isCurrent
                         ? 'bg-[#182218] border-[#254d31] text-[#EDEDED]'
-                        : 'bg-[#151515] border-[#222222] text-[#CCCCCC]'
+                        : 'bg-[#151515] border-[#222222] text-[#CCCCCC] hover:bg-[#1A1A1A]'
                     }`}
+                    title="Нажмите, чтобы посмотреть профиль и статистику"
                   >
                     <span className="font-bold text-[#888888]">
                       {idx === 0 ? (
@@ -182,11 +186,13 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                 return (
                   <div
                     key={user.id}
-                    className={`grid grid-cols-[36px_1fr_80px_90px] items-center px-3 py-2 rounded border text-xs font-mono transition-colors ${
+                    onClick={() => onSelectUser && onSelectUser(user)}
+                    className={`grid grid-cols-[36px_1fr_80px_90px] items-center px-3 py-2 rounded border text-xs font-mono transition-colors cursor-pointer hover:border-[#1baca6]/40 ${
                       isCurrent
                         ? 'bg-[#152026] border-[#1d3d4d] text-[#EDEDED]'
-                        : 'bg-[#151515] border-[#222222] text-[#CCCCCC]'
+                        : 'bg-[#151515] border-[#222222] text-[#CCCCCC] hover:bg-[#1A1A1A]'
                     }`}
+                    title="Нажмите, чтобы посмотреть профиль и статистику"
                   >
                     <span className="font-bold text-[#888888]">
                       {idx === 0 ? (

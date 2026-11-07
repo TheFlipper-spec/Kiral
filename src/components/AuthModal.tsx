@@ -58,6 +58,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setError('Никнейм должен содержать минимум 2 символа');
       return;
     }
+    if (!passwordInput || passwordInput.trim().length < 3) {
+      setError('Пароль обязателен для регистрации и входа (минимум 3 символа)');
+      return;
+    }
 
     const res = userService.loginUser(trimmed, passwordInput);
     if (!res.success) {
@@ -223,7 +227,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div>
               <label className="text-[10px] font-mono text-[#888888] uppercase tracking-wider block mb-1">
-                Пароль для защиты (по желанию):
+                Пароль (обязательно):
               </label>
               <div className="relative">
                 <Lock className="w-3.5 h-3.5 text-[#666666] absolute left-3 top-2.5" />
@@ -234,7 +238,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     setPasswordInput(e.target.value);
                     setError(null);
                   }}
-                  placeholder="Любой пароль или оставьте пустым"
+                  placeholder="Минимум 3 символа"
+                  required
                   className="w-full bg-[#1A1A1A] border border-[#333333] rounded pl-8 pr-3 py-1.5 text-xs font-mono text-[#EDEDED] placeholder-[#555555] focus:outline-none focus:border-[#1baca6]"
                 />
               </div>

@@ -1,10 +1,10 @@
-import React from 'react';
-import { Upload, RotateCcw, BookOpen, Swords, Users, Target, Trophy, User, Cloud } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Upload, RotateCcw, BookOpen, Swords, Users, Target, Trophy, User, Cloud, Download } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
 import type { ScoreDeltaData } from './ScoreDeltaNotification';
 
-export type GameMode = 'review' | 'vs-ai' | 'pvp' | 'puzzles';
+export type GameMode = 'review' | 'vs-ai' | 'pvp' | 'puzzles' | 'ranked';
 
 interface HeaderProps {
   gameMode: GameMode;
@@ -43,26 +43,49 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenLeaderboard,
   onOpenAuth
 }) => {
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (installPrompt) {
+      installPrompt.prompt();
+      const res = await installPrompt.userChoice;
+      if (res.outcome === 'accepted') {
+        setInstallPrompt(null);
+      }
+    } else {
+      alert('Чтобы скачать сайт как приложение:\n• На Android: нажмите меню браузера (⋮) -> «Установить приложение»\n• На iPhone/iPad: нажмите «Поделиться» (квадрат со стрелкой) -> «На экран «Домой»»\n• На ПК в Chrome: значок установки в адресной строке справа');
+    }
+  };
+
   return (
-    <header className="h-12 border-b border-[#262626] bg-[#0A0A0A] px-4 flex items-center justify-between select-none shrink-0 z-30">
+    <header className="h-12 border-b border-[#262626] bg-[#0A0A0A] px-2 sm:px-4 flex items-center justify-between select-none shrink-0 z-30">
       {/* Brand & Engine status */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-baseline gap-2">
+      <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar">
+        <div className="flex items-baseline gap-1.5 shrink-0">
           <span className="font-mono text-base font-bold tracking-tight text-[#EDEDED]">
             KIRAL
           </span>
-          <span className="text-[10px] font-mono text-[#666666] tracking-wider uppercase hidden sm:inline">
+          <span className="text-[10px] font-mono text-[#666666] tracking-wider uppercase hidden md:inline">
             Chess Review & AI
           </span>
         </div>
 
-        <div className="h-3.5 w-[1px] bg-[#262626]" />
+        <div className="h-3.5 w-[1px] bg-[#262626] shrink-0" />
 
         {/* Mode Selector Pill */}
-        <div className="flex items-center bg-[#141414] border border-[#262626] rounded-md p-0.5">
+        <div className="flex items-center bg-[#141414] border border-[#262626] rounded-md p-0.5 shrink-0">
           <button
             onClick={() => onChangeMode('review')}
-            className={`px-2.5 py-1 rounded text-xs font-mono flex items-center gap-1.5 transition-colors ${
+            className={`px-2 py-1 rounded text-xs font-mono flex items-center gap-1.5 transition-colors ${
               gameMode === 'review'
                 ? 'bg-[#222222] text-[#EDEDED] font-semibold'
                 : 'text-[#777777] hover:text-[#CCCCCC]'
@@ -72,20 +95,33 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden md:inline">Разбор</span>
           </button>
           <button
+            onClick={() => onChangeMode('ranked')}
+            className={`px-2 py-1 rounded text-xs font-mono flex items-center gap-1.5 transition-colors ${
+              gameMode === 'ranked'
+                ? 'bg-[#222222] text-[#f0c15c] font-semibold'
+                : 'text-[#777777] hover:text-[#CCCCCC]'
+            }`}
+            title="Соревновательный режим: матчмейкинг онлайн или рейтинговый ИИ"
+          >
+            <Trophy className="w-3.5 h-3.5 text-[#f0c15c]" strokeWidth={1.5} />
+            <span className="hidden sm:inline">Рейтинг</span>
+            <span className="sm:hidden">Рейт</span>
+          </button>
+          <button
             onClick={() => onChangeMode('vs-ai')}
-            className={`px-2.5 py-1 rounded text-xs font-mono flex items-center gap-1.5 transition-colors ${
+            className={`px-2 py-1 rounded text-xs font-mono flex items-center gap-1.5 transition-colors ${
               gameMode === 'vs-ai'
                 ? 'bg-[#222222] text-[#1baca6] font-semibold'
                 : 'text-[#777777] hover:text-[#CCCCCC]'
             }`}
           >
             <Swords className="w-3.5 h-3.5" strokeWidth={1.5} />
-            <span className="hidden sm:inline">Против ИИ</span>
+            <span className="hidden sm:inline">Тренировка</span>
             <span className="sm:hidden">ИИ</span>
           </button>
           <button
             onClick={() => onChangeMode('pvp')}
-            className={`px-2.5 py-1 rounded text-xs font-mono flex items-center gap-1.5 transition-colors ${
+            className={`px-2 py-1 rounded text-xs font-mono flex items-center gap-1.5 transition-colors ${
               gameMode === 'pvp'
                 ? 'bg-[#222222] text-[#5c8bb0] font-semibold'
                 : 'text-[#777777] hover:text-[#CCCCCC]'
@@ -97,7 +133,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={() => onChangeMode('puzzles')}
-            className={`px-2.5 py-1 rounded text-xs font-mono flex items-center gap-1.5 transition-colors ${
+            className={`px-2 py-1 rounded text-xs font-mono flex items-center gap-1.5 transition-colors ${
               gameMode === 'puzzles'
                 ? 'bg-[#222222] text-[#96bc4b] font-semibold'
                 : 'text-[#777777] hover:text-[#CCCCCC]'
@@ -244,6 +280,16 @@ export const Header: React.FC<HeaderProps> = ({
           <Cloud className={`w-3 h-3 ${isCloudConnected ? 'text-emerald-400' : 'text-[#666666]'}`} strokeWidth={1.5} />
           <span className={`w-1.5 h-1.5 rounded-full ${isCloudConnected ? 'bg-emerald-400' : 'bg-amber-500/80'}`} />
         </div>
+
+        {/* Install PWA App button */}
+        <button
+          onClick={handleInstallClick}
+          className="p-1.5 px-2 rounded text-[#CCCCCC] hover:text-[#1baca6] hover:bg-[#1C1C1C] border border-[#262626] transition-colors flex items-center gap-1 text-xs font-mono"
+          title="Скачать / установить сайт как приложение"
+        >
+          <Download className="w-3.5 h-3.5 text-[#1baca6]" strokeWidth={1.5} />
+          <span className="hidden xl:inline">Приложение</span>
+        </button>
 
         {/* Leaderboard button */}
         <button

@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { supabase as sharedSupabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabaseClient';
 import type { UserProfile } from './userService';
 
 export interface CloudConfig {
@@ -13,9 +14,9 @@ const STORAGE_CLOUD_CONFIG_KEY = 'kiral_cloud_config_v1';
 
 // Built-in configured Supabase production cloud database
 const DEFAULT_SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL || 'https://fohaoxbaudmlgxcvlveh.supabase.co';
+  import.meta.env.VITE_SUPABASE_URL || SUPABASE_URL;
 const DEFAULT_SUPABASE_KEY =
-  import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_kJwbCLRHf74K7DL2MRSpqQ_mP4l4mZB';
+  import.meta.env.VITE_SUPABASE_ANON_KEY || SUPABASE_ANON_KEY;
 
 class CloudDatabaseService {
   private config: CloudConfig = {
@@ -75,7 +76,10 @@ class CloudDatabaseService {
 
     if (this.config.provider === 'supabase' && this.config.supabaseUrl && this.config.supabaseAnonKey) {
       try {
-        this.supabase = createClient(this.config.supabaseUrl, this.config.supabaseAnonKey);
+        this.supabase =
+          this.config.supabaseUrl === SUPABASE_URL && this.config.supabaseAnonKey === SUPABASE_ANON_KEY
+            ? sharedSupabase
+            : createClient(this.config.supabaseUrl, this.config.supabaseAnonKey);
         this.isConnected = true;
         this.statusMessage = 'Подключено к Supabase (PostgreSQL Cloud)';
       } catch (err) {
@@ -102,6 +106,7 @@ class CloudDatabaseService {
         const { data, error } = await this.supabase
           .from('kiral_players')
           .select('*')
+          .neq('auth_provider', 'guest')
           .order('elo', { ascending: false })
           .limit(100);
 
@@ -111,23 +116,27 @@ class CloudDatabaseService {
         }
 
         if (data && Array.isArray(data)) {
-          return data.map((row) => ({
-            id: row.id,
-            username: row.username,
-            elo: Number(row.elo) || 1200,
-            puzzlePoints: Number(row.puzzle_points) || 0,
-            solvedPuzzleIds: Array.isArray(row.solved_puzzles) ? row.solved_puzzles : [],
-            stats: {
-              wins: Number(row.wins) || 0,
-              losses: Number(row.losses) || 0,
-              draws: Number(row.draws) || 0,
-              totalGames: Number(row.total_games) || 0
-            },
-            authProvider: row.auth_provider || 'custom',
-            avatarUrl: row.avatar_url,
-            createdAt: row.created_at || new Date().toISOString().slice(0, 10),
-            lastActiveAt: row.last_active_at
-          }));
+          return data
+            .filter((row) => row.auth_provider !== 'guest' && row.username !== 'Игрок')
+            .map((row) => ({
+              id: row.id,
+              username: row.username,
+              isRegistered: true,
+              elo: Number(row.elo) || 100,
+              puzzlePoints: Number(row.puzzle_points) || 0,
+              solvedPuzzleIds: Array.isArray(row.solved_puzzles) ? row.solved_puzzles : [],
+              friends: [],
+              stats: {
+                wins: Number(row.wins) || 0,
+                losses: Number(row.losses) || 0,
+                draws: Number(row.draws) || 0,
+                totalGames: Number(row.total_games) || 0
+              },
+              authProvider: row.auth_provider || 'custom',
+              avatarUrl: row.avatar_url,
+              createdAt: row.created_at || new Date().toISOString().slice(0, 10),
+              lastActiveAt: row.last_active_at
+            }));
         }
       } catch (err) {
         console.warn('Supabase query failed:', err);
@@ -173,7 +182,9 @@ class CloudDatabaseService {
    * Upserts the player's updated profile to the central cloud database
    */
   public async syncPlayer(user: UserProfile): Promise<boolean> {
-    if (!user || !user.id) return false;
+    if (!user || !user.id || !user.isRegistered || user.authProvider === 'guest') {
+      return false;
+    }
 
     // 1. Supabase Postgres
     if (this.supabase && this.config.provider === 'supabase') {
