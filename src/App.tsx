@@ -346,31 +346,39 @@ export const App: React.FC = () => {
 
   const handleStartMistakeReplay = useCallback(() => {
     if (playerMistakes.length === 0) return;
+    const firstItem = playerMistakes[0];
     setIsMistakeReplayActive(true);
     setMistakeIndex(0);
     setMistakeSuccess(null);
     setMistakePieceHintRevealed(false);
     setMistakeSolutionRevealed(false);
-    setPreviewFen(playerMistakes[0].fenBefore);
+    setPreviewFen(firstItem.fenBefore);
     setIsPreviewingLine(true);
+    setMoveAccent(null);
+    setCurrentPly(Math.max(0, firstItem.ply));
   }, [playerMistakes]);
 
   const handleNextMistake = useCallback(() => {
     if (mistakeIndex + 1 < playerMistakes.length) {
       const nextIdx = mistakeIndex + 1;
+      const nextItem = playerMistakes[nextIdx];
       setMistakeIndex(nextIdx);
       setMistakeSuccess(null);
       setMistakePieceHintRevealed(false);
       setMistakeSolutionRevealed(false);
-      setPreviewFen(playerMistakes[nextIdx].fenBefore);
+      setPreviewFen(nextItem.fenBefore);
+      setMoveAccent(null);
+      setCurrentPly(Math.max(0, nextItem.ply));
     } else {
       setIsMistakeReplayActive(false);
       setPreviewFen(null);
       setIsPreviewingLine(false);
+      setMoveAccent(null);
+      setCurrentPly(Math.max(0, fens.length - 1));
       sound.playVictory();
       sound.speak('Работа над ошибками успешно завершена!');
     }
-  }, [mistakeIndex, playerMistakes]);
+  }, [mistakeIndex, playerMistakes, fens.length]);
 
   const handleRevealMistakePieceHint = useCallback(() => {
     setMistakePieceHintRevealed(true);
@@ -392,7 +400,9 @@ export const App: React.FC = () => {
     setIsMistakeReplayActive(false);
     setPreviewFen(null);
     setIsPreviewingLine(false);
-  }, []);
+    setMoveAccent(null);
+    setCurrentPly(Math.max(0, fens.length - 1));
+  }, [fens.length]);
 
   // Position Evaluation Cache (always stores objective Skill 20 Stockfish evaluations)
   const positionEvalCacheRef = useRef<Map<string, EngineEvaluation>>(
@@ -2563,7 +2573,7 @@ export const App: React.FC = () => {
             fen={currentFen}
             isFlipped={isFlipped}
             onFlip={() => setIsFlipped((prev) => !prev)}
-            currentMove={currentMove}
+            currentMove={isMistakeReplayActive ? undefined : (currentMove || undefined)}
             currentPly={currentPly}
             totalPlies={Math.max(0, fens.length - 1)}
             onGoToStart={() => handleSelectPly(0)}
@@ -2579,24 +2589,24 @@ export const App: React.FC = () => {
             }}
             evalCp={evalCp}
             mate={mate}
-            bestMoveUci={currentMove?.bestMoveUci}
+            bestMoveUci={isMistakeReplayActive ? undefined : currentMove?.bestMoveUci}
             onPieceDrop={handlePieceDrop}
             isAiThinking={isAiThinking}
-            gameOverMessage={gameOverMessage}
+            gameOverMessage={isMistakeReplayActive ? null : gameOverMessage}
             onRestartGame={() => handleReset()}
-            moveAccent={moveAccent}
-            showEngineArrows={gameMode !== 'ranked' && gameMode !== 'pvp' && !gameOverMessage}
-            openingsArrow={openingsArrow}
+            moveAccent={isMistakeReplayActive ? null : moveAccent}
+            showEngineArrows={!isMistakeReplayActive && gameMode !== 'ranked' && gameMode !== 'pvp' && !gameOverMessage}
+            openingsArrow={isMistakeReplayActive ? null : openingsArrow}
             topPlayer={opponentBarInfo}
             bottomPlayer={playerBarInfo}
             isOpponentFriend={isOpponentFriend}
             onToggleOpponentFriend={handleToggleOpponentFriend}
             onOpenTopPlayerProfile={handleOpenOpponentProfile}
-            canResign={(gameMode === 'ranked' || gameMode === 'vs-ai') && !gameOverMessage && fens.length > 1}
+            canResign={!isMistakeReplayActive && (gameMode === 'ranked' || gameMode === 'vs-ai') && !gameOverMessage && fens.length > 1}
             onResignGame={handleResignCurrentGame}
-            canOfferDraw={(gameMode === 'vs-ai' || gameMode === 'ranked' || gameMode === 'pvp') && !gameOverMessage && fens.length > 4}
+            canOfferDraw={!isMistakeReplayActive && (gameMode === 'vs-ai' || gameMode === 'ranked' || gameMode === 'pvp') && !gameOverMessage && fens.length > 4}
             onOfferDraw={handleOfferDraw}
-            canUndoMove={canUndoMove}
+            canUndoMove={!isMistakeReplayActive && canUndoMove}
             onUndoMove={handleUndoMove}
             mistakeCount={playerMistakes.length}
             onStartMistakeReplay={handleStartMistakeReplay}
