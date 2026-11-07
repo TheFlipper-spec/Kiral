@@ -72,7 +72,6 @@ interface ChessboardAreaProps {
   isOpponentFriend?: boolean;
   onToggleOpponentFriend?: () => void;
   onOpenTopPlayerProfile?: () => void;
-  onOpenBottomPlayerProfile?: () => void;
   canResign?: boolean;
   onResignGame?: () => void;
   canUndoMove?: boolean;
@@ -108,7 +107,6 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   isOpponentFriend = false,
   onToggleOpponentFriend,
   onOpenTopPlayerProfile,
-  onOpenBottomPlayerProfile,
   canResign = false,
   onResignGame,
   canUndoMove = false,

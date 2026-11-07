@@ -5,7 +5,6 @@ import type { GameMode } from './components/Header';
 import { ChessboardArea } from './components/ChessboardArea';
 import type { MoveAccentInfo, BoardPlayerBarInfo } from './components/ChessboardArea';
 import { AnalysisPanel } from './components/AnalysisPanel';
-import { PuzzlePanel } from './components/PuzzlePanel';
 import { LearnPanel } from './components/LearnPanel';
 import { CHESS_OPENINGS } from './data/openings';
 import type { ChessOpening } from './data/openings';
@@ -809,7 +808,7 @@ export const App: React.FC = () => {
       }
     }
 
-    if ((gameMode === 'learn' || gameMode === 'puzzles') && activeLearnTab === 'openings') {
+    if ((gameMode === 'learn' || (gameMode as string) === 'puzzles') && activeLearnTab === 'openings') {
       const step = currentOpening.moves[openingStepIndex];
       if (!step) return false;
       const playedUci = `${sourceSquare}${targetSquare}`;
@@ -2013,11 +2012,6 @@ export const App: React.FC = () => {
           setLeaderboardTab('elo');
           setIsLeaderboardOpen(true);
         }}
-        onOpenFriends={() => {
-          setLeaderboardTab('friends');
-          setIsLeaderboardOpen(true);
-        }}
-        onOpenMyProfile={() => setSelectedProfileUser(currentUser)}
         onOpenAuth={() => setIsAuthOpen(true)}
         canUndoMove={canUndoMove}
         onUndoMove={handleUndoMove}

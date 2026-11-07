@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Target, BookOpen, GraduationCap } from 'lucide-react';
 import { PuzzlePanel } from './PuzzlePanel';
 import { OpeningsPanel } from './OpeningsPanel';

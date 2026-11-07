@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, User, Check, RefreshCw, Shield, LogIn, Settings, Lock, LogOut, Award, Swords, Users } from 'lucide-react';
+import { X, User, Check, Shield, LogIn, Lock, LogOut, Settings, RefreshCw } from 'lucide-react';
 import { userService } from '../services/userService';
 import type { UserProfile } from '../services/userService';
 import { cloudDatabase } from '../services/cloudDatabase';

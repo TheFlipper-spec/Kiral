@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, RotateCcw, BookOpen, Swords, Users, Target, Trophy, User, Cloud, Download, GraduationCap, Undo2 } from 'lucide-react';
+import { Upload, RotateCcw, BookOpen, Swords, Users, Trophy, User, Cloud, Download, GraduationCap, Undo2 } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
 import type { ScoreDeltaData } from './ScoreDeltaNotification';
@@ -44,8 +44,6 @@ export const Header: React.FC<HeaderProps> = ({
   scoreDelta,
   isCloudConnected = false,
   onOpenLeaderboard,
-  onOpenFriends,
-  onOpenMyProfile,
   onOpenAuth,
   canUndoMove = false,
   onUndoMove

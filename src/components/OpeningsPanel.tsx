@@ -5,9 +5,7 @@ import {
   ChevronLeft,
   RotateCcw,
   Volume2,
-  CheckCircle2,
   GraduationCap,
-  Sparkles,
   Award
 } from 'lucide-react';
 import { CHESS_OPENINGS } from '../data/openings';
