@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, User, Trophy, Target, UserPlus, UserCheck, Swords, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, User, Trophy, Target, UserPlus, UserCheck, Swords, CheckCircle2, RefreshCw } from 'lucide-react';
 import type { UserProfile } from '../services/userService';
 import { userService } from '../services/userService';
 
@@ -19,20 +19,48 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onChallengePlayer
 }) => {
   const [challenged, setChallenged] = useState(false);
+  const [liveUser, setLiveUser] = useState<UserProfile | null>(targetUser);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const syncUserFromCloud = async (id: string, fallback: UserProfile) => {
+    setIsRefreshing(true);
+    try {
+      await userService.refreshFromCloud();
+      const fresh = userService.getUserById(id);
+      if (fresh) {
+        setLiveUser({ ...fresh });
+      } else {
+        setLiveUser(fallback);
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && targetUser) {
+      const cached = userService.getUserById(targetUser.id);
+      setLiveUser(cached ? { ...cached } : targetUser);
+      syncUserFromCloud(targetUser.id, targetUser);
+    } else {
+      setLiveUser(null);
+    }
+  }, [isOpen, targetUser]);
 
   if (!isOpen || !targetUser) return null;
 
-  const isMe = targetUser.id === currentUser.id;
-  const isFriend = userService.isFriend(targetUser.id);
+  const displayedUser = liveUser || targetUser;
+  const isMe = displayedUser.id === currentUser.id;
+  const isFriend = userService.isFriend(displayedUser.id);
 
-  const totalGames = targetUser.stats.totalGames || 0;
-  const wins = targetUser.stats.wins || 0;
-  const losses = targetUser.stats.losses || 0;
-  const draws = targetUser.stats.draws || 0;
+  const totalGames = displayedUser.stats?.totalGames || 0;
+  const wins = displayedUser.stats?.wins || 0;
+  const losses = displayedUser.stats?.losses || 0;
+  const draws = displayedUser.stats?.draws || 0;
   const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
 
   const handleToggleFriend = () => {
-    userService.toggleFriend(targetUser.id);
+    userService.toggleFriend(displayedUser.id);
     // Trigger re-render
     setChallenged((prev) => !prev);
   };
@@ -40,7 +68,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const handleChallenge = () => {
     setChallenged(true);
     if (onChallengePlayer) {
-      onChallengePlayer(targetUser);
+      onChallengePlayer(displayedUser);
     }
     setTimeout(() => setChallenged(false), 4000);
   };
@@ -50,9 +78,18 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       <div className="bg-[#121212] border border-[#262626] rounded-xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col">
         {/* Header bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#262626] bg-[#0E0E0E]">
-          <span className="text-xs font-mono uppercase tracking-wider text-[#888888]">
-            Профиль игрока
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono uppercase tracking-wider text-[#888888]">
+              Профиль игрока
+            </span>
+            <button
+              onClick={() => syncUserFromCloud(displayedUser.id, displayedUser)}
+              className="p-1 rounded text-[#777777] hover:text-[#1baca6] hover:bg-[#1A1A1A] transition-colors"
+              title="Обновить статистику и ELO из облака"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#1baca6]' : ''}`} strokeWidth={1.5} />
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="p-1 rounded text-[#777777] hover:text-[#EDEDED] hover:bg-[#1A1A1A] transition-colors"
@@ -65,10 +102,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         <div className="p-5 flex flex-col items-center text-center">
           {/* Avatar */}
           <div className="relative mb-3">
-            {targetUser.avatarUrl ? (
+            {displayedUser.avatarUrl ? (
               <img
-                src={targetUser.avatarUrl}
-                alt={targetUser.username}
+                src={displayedUser.avatarUrl}
+                alt={displayedUser.username}
                 className="w-16 h-16 rounded-full border-2 border-[#1baca6] object-cover"
               />
             ) : (
@@ -80,10 +117,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           </div>
 
           <h3 className="text-base font-bold text-white font-mono mb-1">
-            {targetUser.username}
+            {displayedUser.username}
           </h3>
           <span className="text-[11px] font-mono text-[#777777] mb-4">
-            В игре с {targetUser.createdAt || 'ноября 2026'}
+            В игре с {displayedUser.createdAt || 'ноября 2026'}
           </span>
 
           {/* Ratings Grid */}
@@ -94,7 +131,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               </div>
               <div className="text-left">
                 <span className="text-[10px] font-mono uppercase text-[#777777] block">Рейтинг ELO</span>
-                <span className="text-sm font-mono font-bold text-white">{targetUser.elo}</span>
+                <span className="text-sm font-mono font-bold text-white">{displayedUser.elo}</span>
               </div>
             </div>
 
@@ -104,7 +141,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               </div>
               <div className="text-left">
                 <span className="text-[10px] font-mono uppercase text-[#777777] block">Задачи</span>
-                <span className="text-sm font-mono font-bold text-white">{targetUser.puzzlePoints} б.</span>
+                <span className="text-sm font-mono font-bold text-white">{displayedUser.puzzlePoints} б.</span>
               </div>
             </div>
           </div>

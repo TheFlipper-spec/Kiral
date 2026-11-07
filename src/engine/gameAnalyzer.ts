@@ -2,7 +2,7 @@ import { Chess, Move } from 'chess.js';
 import type { GameReport, MoveAnalysis, MoveClassification } from '../types/chess';
 import { CLASSIFICATION_CONFIGS } from '../types/chess';
 import { stockfish } from './stockfishService';
-import { classifySingleMove, calculatePlayerAccuracy } from './evalFormulas';
+import { classifySingleMove, calculatePlayerAccuracy, quickEvaluateFen } from './evalFormulas';
 
 export interface AnalysisProgress {
   currentPly: number;
@@ -79,14 +79,86 @@ export class GameAnalyzer {
       classificationCounts.black[key] = 0;
     });
 
+    // Stage 1: Instant 0ms preliminary report so UI immediately shows all moves, eval bar, and summary
+    const initialQuickMoves: MoveAnalysis[] = [];
+    const quickCounts = {
+      white: { ...classificationCounts.white },
+      black: { ...classificationCounts.black }
+    };
+    let prevQuick = quickEvaluateFen(fens[0]);
+    for (let i = 0; i < totalPlies; i++) {
+      const m = historyMoves[i];
+      const fBefore = fens[i];
+      const fAfter = fens[i + 1];
+      const curQuick = quickEvaluateFen(fAfter);
+      const uciStr = `${m.from}${m.to}${m.promotion || ''}`;
+      const qClass = classifySingleMove({
+        ply: i,
+        turn: m.color,
+        san: m.san,
+        uci: uciStr,
+        piece: m.piece,
+        captured: m.captured,
+        fenBefore: fBefore,
+        fenAfter: fAfter,
+        evalBefore: prevQuick.cp,
+        evalAfter: curQuick.cp,
+        mateBefore: prevQuick.mate,
+        mateAfter: curQuick.mate,
+        bestMoveUci: ''
+      });
+      const qAnalysis: MoveAnalysis = {
+        ply: i,
+        moveNumber: Math.floor(i / 2) + 1,
+        turn: m.color,
+        san: m.san,
+        uci: uciStr,
+        from: m.from,
+        to: m.to,
+        piece: m.piece,
+        captured: m.captured,
+        fenBefore: fBefore,
+        fenAfter: fAfter,
+        evalBefore: prevQuick.cp,
+        evalAfter: curQuick.cp,
+        mateBefore: prevQuick.mate,
+        mateAfter: curQuick.mate,
+        winPercentBefore: qClass.winBefore,
+        winPercentAfter: qClass.winAfter,
+        winPercentLoss: qClass.winLoss,
+        centipawnLoss: qClass.cpLoss,
+        classification: qClass.classification,
+        classificationReason: qClass.reason,
+        bestMoveUci: uciStr,
+        bestMoveSan: m.san,
+        bestLinePv: [],
+        depth: 1
+      };
+      initialQuickMoves.push(qAnalysis);
+      if (m.color === 'w') quickCounts.white[qAnalysis.classification]++;
+      else quickCounts.black[qAnalysis.classification]++;
+      prevQuick = curQuick;
+    }
+
     onProgress?.({
       currentPly: 0,
       totalPlies,
       depth,
-      currentMoveSan: 'Start'
+      currentMoveSan: 'Start',
+      reportSoFar: {
+        whiteAccuracy: calculatePlayerAccuracy(initialQuickMoves, 'w'),
+        blackAccuracy: calculatePlayerAccuracy(initialQuickMoves, 'b'),
+        whitePlayer,
+        blackPlayer,
+        event,
+        date,
+        result,
+        moves: initialQuickMoves,
+        classificationSummary: quickCounts
+      }
     });
 
-    let prevEvaluation = await stockfish.evaluate(fens[0], depth);
+    let prevEvaluation = await stockfish.evaluate(fens[0], Math.min(depth, 10));
 
     for (let ply = 0; ply < totalPlies; ply++) {
       if (this.isCancelled) {
@@ -100,10 +172,10 @@ export class GameAnalyzer {
       const turn = move.color;
       const uci = `${move.from}${move.to}${move.promotion || ''}`;
 
-      const currentEvaluation = await stockfish.evaluate(fenAfter, depth);
+      const currentEvaluation = await stockfish.evaluate(fenAfter, Math.min(depth, 10));
 
-      const bestMoveUci = prevEvaluation.bestMove || uci;
-      const bestMoveSan = uciToSan(fenBefore, bestMoveUci);
+      const bestMoveUci = prevEvaluation.bestMove || '';
+      const bestMoveSan = bestMoveUci ? uciToSan(fenBefore, bestMoveUci) : move.san;
 
       const prevMoveClass =
         movesAnalysis.length > 0 ? movesAnalysis[movesAnalysis.length - 1].classification : undefined;
@@ -165,19 +237,33 @@ export class GameAnalyzer {
         classificationCounts.black[moveAnalysis.classification]++;
       }
 
+      const combinedMoves = [
+        ...movesAnalysis,
+        ...initialQuickMoves.slice(movesAnalysis.length)
+      ];
+      const combinedCounts = {
+        white: {} as Record<MoveClassification, number>,
+        black: {} as Record<MoveClassification, number>
+      };
+      (Object.keys(CLASSIFICATION_CONFIGS) as MoveClassification[]).forEach((k) => {
+        combinedCounts.white[k] = 0;
+        combinedCounts.black[k] = 0;
+      });
+      combinedMoves.forEach((m) => {
+        if (m.turn === 'w') combinedCounts.white[m.classification]++;
+        else combinedCounts.black[m.classification]++;
+      });
+
       const partialReport: GameReport = {
-        whiteAccuracy: calculatePlayerAccuracy(movesAnalysis, 'w'),
-        blackAccuracy: calculatePlayerAccuracy(movesAnalysis, 'b'),
+        whiteAccuracy: calculatePlayerAccuracy(combinedMoves, 'w'),
+        blackAccuracy: calculatePlayerAccuracy(combinedMoves, 'b'),
         whitePlayer,
         blackPlayer,
         event,
         date,
         result,
-        moves: [...movesAnalysis],
-        classificationSummary: {
-          white: { ...classificationCounts.white },
-          black: { ...classificationCounts.black }
-        }
+        moves: combinedMoves,
+        classificationSummary: combinedCounts
       };
 
       onProgress?.({

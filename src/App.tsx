@@ -12,7 +12,8 @@ import type { AnalysisProgress } from './engine/gameAnalyzer';
 import { stockfish } from './engine/stockfishService';
 import { sound } from './services/soundService';
 import { SAMPLE_GAMES } from './data/sampleGames';
-import { PUZZLES } from './data/puzzles';
+import { PUZZLES, analyzePuzzleMistake } from './data/puzzles';
+import type { PuzzleMistakeAnalysis } from './data/puzzles';
 import { LeaderboardModal } from './components/LeaderboardModal';
 import { AuthModal } from './components/AuthModal';
 import { ScoreDeltaNotification } from './components/ScoreDeltaNotification';
@@ -25,7 +26,7 @@ import { Swords } from 'lucide-react';
 import { userService } from './services/userService';
 import type { UserProfile } from './services/userService';
 import { cloudDatabase } from './services/cloudDatabase';
-import { classifySingleMove, calculatePlayerAccuracy } from './engine/evalFormulas';
+import { classifySingleMove, calculatePlayerAccuracy, quickEvaluateFen } from './engine/evalFormulas';
 import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES } from './types/chess';
 import type { GameReport, MoveAnalysis, MoveClassification, EngineEvaluation } from './types/chess';
 
@@ -86,6 +87,7 @@ export const App: React.FC = () => {
   const [currentPuzzleIndex, setCurrentPuzzleIndex] = useState<number>(0);
   const [puzzleStatus, setPuzzleStatus] = useState<'playing' | 'solved' | 'failed'>('playing');
   const [puzzleStep, setPuzzleStep] = useState<number>(0);
+  const [puzzleMistakeAnalysis, setPuzzleMistakeAnalysis] = useState<PuzzleMistakeAnalysis | null>(null);
   const [solvedPuzzlesCount, setSolvedPuzzlesCount] = useState<number>(0);
   const [totalAttemptedPuzzles, setTotalAttemptedPuzzles] = useState<number>(0);
   const [puzzleDifficultyFilter, setPuzzleDifficultyFilter] = useState<'all' | 'easy' | 'medium' | 'hard'>('all');
@@ -262,9 +264,263 @@ export const App: React.FC = () => {
     };
   }, [isPlaying, fens.length, playMoveAudio]);
 
+  // Position Evaluation Cache (always stores objective Skill 20 Stockfish evaluations)
+  const positionEvalCacheRef = useRef<Map<string, EngineEvaluation>>(
+    new Map([
+      [
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        {
+          cp: 20,
+          mate: null,
+          depth: 14,
+          pv: ['e2e4', 'e7e5', 'g1f3', 'b8c6'],
+          bestMove: 'e2e4',
+          secondBest: {
+            cp: 15,
+            mate: null,
+            pv: ['d2d4', 'd7d5'],
+            bestMove: 'd2d4'
+          }
+        }
+      ]
+    ])
+  );
+
+  const buildUpdatedReport = useCallback(
+    (prev: GameReport | null, plyIndex: number, analysis: MoveAnalysis): GameReport => {
+      const existingMoves = prev ? [...prev.moves] : [];
+      existingMoves[plyIndex] = analysis;
+      // Keep only valid contiguous or defined moves up to max ply
+      const cleanMoves = existingMoves.filter(Boolean);
+
+      const counts = {
+        white: {} as Record<MoveClassification, number>,
+        black: {} as Record<MoveClassification, number>
+      };
+      (Object.keys(CLASSIFICATION_CONFIGS) as MoveClassification[]).forEach((k) => {
+        counts.white[k] = 0;
+        counts.black[k] = 0;
+      });
+      cleanMoves.forEach((m) => {
+        if (m.turn === 'w') counts.white[m.classification]++;
+        else counts.black[m.classification]++;
+      });
+
+      return {
+        whiteAccuracy: calculatePlayerAccuracy(cleanMoves, 'w'),
+        blackAccuracy: calculatePlayerAccuracy(cleanMoves, 'b'),
+        whitePlayer:
+          prev?.whitePlayer ||
+          (gameModeRef.current === 'vs-ai' ? (playerColor === 'w' ? 'Вы' : 'Stockfish') : 'Белые'),
+        blackPlayer:
+          prev?.blackPlayer ||
+          (gameModeRef.current === 'vs-ai' ? (playerColor === 'b' ? 'Вы' : 'Stockfish') : 'Черные'),
+        event:
+          prev?.event ||
+          (gameModeRef.current === 'vs-ai'
+            ? 'Матч против Stockfish'
+            : gameModeRef.current === 'ranked'
+            ? 'Рейтинговый матч'
+            : 'Интерактивный разбор'),
+        date: prev?.date || new Date().toISOString().slice(0, 10),
+        result: prev?.result || '*',
+        moves: existingMoves,
+        classificationSummary: counts
+      };
+    },
+    [playerColor]
+  );
+
+  /**
+   * Evaluates any move (Player, AI, or Online Opponent) in two stages:
+   * 1) 0ms instant heuristic evaluation so EvalBar & Summary update immediately.
+   * 2) Full-strength Stockfish (Skill 20, MultiPV 2) evaluation of fenBefore & fenAfter.
+   */
+  const recordAndEvaluateMove = useCallback(
+    async (params: {
+      plyIndex: number;
+      fenBefore: string;
+      fenAfter: string;
+      moveResult: Move;
+      announceAccent: boolean;
+    }): Promise<EngineEvaluation> => {
+      const { plyIndex, fenBefore, fenAfter, moveResult, announceAccent } = params;
+      const moveSan = moveResult.san;
+      const moveUci = `${moveResult.from}${moveResult.to}${moveResult.promotion || ''}`;
+      const turn = moveResult.color;
+      const piece = moveResult.piece;
+      const captured = moveResult.captured;
+
+      // Stage 1: Instant 0ms heuristic update so EvalBar reacts immediately
+      const cachedBefore = positionEvalCacheRef.current.get(fenBefore);
+      const quickBefore = cachedBefore || {
+        ...quickEvaluateFen(fenBefore),
+        depth: 1,
+        pv: [],
+        bestMove: ''
+      };
+      const quickAfter = quickEvaluateFen(fenAfter);
+
+      const quickClass = classifySingleMove({
+        ply: plyIndex,
+        turn,
+        san: moveSan,
+        uci: moveUci,
+        piece,
+        captured,
+        fenBefore,
+        fenAfter,
+        evalBefore: quickBefore.cp,
+        evalAfter: quickAfter.cp,
+        mateBefore: quickBefore.mate,
+        mateAfter: quickAfter.mate,
+        bestMoveUci: quickBefore.bestMove
+      });
+
+      const preliminaryAnalysis: MoveAnalysis = {
+        ply: plyIndex,
+        moveNumber: Math.floor(plyIndex / 2) + 1,
+        turn,
+        san: moveSan,
+        uci: moveUci,
+        from: moveResult.from,
+        to: moveResult.to,
+        piece,
+        captured,
+        fenBefore,
+        fenAfter,
+        evalBefore: quickBefore.cp,
+        evalAfter: quickAfter.cp,
+        mateBefore: quickBefore.mate,
+        mateAfter: quickAfter.mate,
+        winPercentBefore: quickClass.winBefore,
+        winPercentAfter: quickClass.winAfter,
+        winPercentLoss: quickClass.winLoss,
+        centipawnLoss: quickClass.cpLoss,
+        classification: quickClass.classification,
+        classificationReason: quickClass.reason,
+        bestMoveUci: quickBefore.bestMove || moveUci,
+        bestMoveSan: quickBefore.bestMove ? uciToSan(fenBefore, quickBefore.bestMove) : moveSan,
+        bestLinePv: [],
+        depth: 1
+      };
+
+      setReport((prev) => buildUpdatedReport(prev, plyIndex, preliminaryAnalysis));
+
+      // Stage 2: Deep objective Stockfish evaluation (Skill Level 20, MultiPV 2)
+      let evalBeforeObj = positionEvalCacheRef.current.get(fenBefore);
+      if (!evalBeforeObj || evalBeforeObj.depth < 8) {
+        evalBeforeObj = await stockfish.evaluate(fenBefore, 9);
+        positionEvalCacheRef.current.set(fenBefore, evalBeforeObj);
+      }
+
+      let evalAfterObj: EngineEvaluation;
+      const chessAfter = new Chess(fenAfter);
+      if (chessAfter.isCheckmate()) {
+        evalAfterObj = {
+          cp: turn === 'w' ? 10000 : -10000,
+          mate: 0,
+          depth: 20,
+          pv: [],
+          bestMove: ''
+        };
+      } else if (chessAfter.isDraw() || chessAfter.isStalemate()) {
+        evalAfterObj = {
+          cp: 0,
+          mate: null,
+          depth: 20,
+          pv: [],
+          bestMove: ''
+        };
+      } else {
+        evalAfterObj = await stockfish.evaluate(fenAfter, 10);
+      }
+      positionEvalCacheRef.current.set(fenAfter, evalAfterObj);
+
+      const trueBestBeforeUci = evalBeforeObj.bestMove || '';
+      const trueBestBeforeSan = trueBestBeforeUci ? uciToSan(fenBefore, trueBestBeforeUci) : moveSan;
+
+      const classResult = classifySingleMove({
+        ply: plyIndex,
+        turn,
+        san: moveSan,
+        uci: moveUci,
+        piece,
+        captured,
+        fenBefore,
+        fenAfter,
+        evalBefore: evalBeforeObj.cp,
+        evalAfter: evalAfterObj.cp,
+        mateBefore: evalBeforeObj.mate,
+        mateAfter: evalAfterObj.mate,
+        bestMoveUci: trueBestBeforeUci,
+        secondLineEval: evalBeforeObj.secondBest?.cp,
+        secondLineUci: evalBeforeObj.secondBest?.bestMove
+      });
+
+      const deepAnalysis: MoveAnalysis = {
+        ply: plyIndex,
+        moveNumber: Math.floor(plyIndex / 2) + 1,
+        turn,
+        san: moveSan,
+        uci: moveUci,
+        from: moveResult.from,
+        to: moveResult.to,
+        piece,
+        captured,
+        fenBefore,
+        fenAfter,
+        evalBefore: evalBeforeObj.cp,
+        evalAfter: evalAfterObj.cp,
+        mateBefore: evalBeforeObj.mate,
+        mateAfter: evalAfterObj.mate,
+        winPercentBefore: classResult.winBefore,
+        winPercentAfter: classResult.winAfter,
+        winPercentLoss: classResult.winLoss,
+        centipawnLoss: classResult.cpLoss,
+        classification: classResult.classification,
+        classificationReason: classResult.reason,
+        bestMoveUci: trueBestBeforeUci || moveUci,
+        bestMoveSan: trueBestBeforeSan,
+        bestLinePv: evalAfterObj.pv,
+        secondLineEval: evalBeforeObj.secondBest?.cp,
+        secondLineUci: evalBeforeObj.secondBest?.bestMove,
+        depth: evalAfterObj.depth
+      };
+
+      setReport((prev) => buildUpdatedReport(prev, plyIndex, deepAnalysis));
+
+      if (announceAccent) {
+        const isCheck = chessAfter.inCheck();
+        const meta = CLASSIFICATION_CONFIGS[classResult.classification];
+        setMoveAccent({
+          classification: classResult.classification,
+          nameRu: meta.nameRu,
+          reason: classResult.reason,
+          isCheck,
+          san: moveSan
+        });
+
+        if (moveAccentTimerRef.current) clearTimeout(moveAccentTimerRef.current);
+        moveAccentTimerRef.current = window.setTimeout(() => {
+          setMoveAccent(null);
+        }, 1600);
+
+        let voiceAnnouncement = meta.nameRu;
+        if (isCheck) {
+          voiceAnnouncement += ', Шах!';
+        }
+        sound.speak(voiceAnnouncement);
+      }
+
+      return evalAfterObj;
+    },
+    [buildUpdatedReport]
+  );
+
   // AI Move Engine
   const triggerAiMove = useCallback(
-    async (fenToRespondTo: string, currentPlyCount: number, existingEval?: EngineEvaluation) => {
+    async (fenToRespondTo: string, currentPlyCount: number) => {
       const chess = new Chess(fenToRespondTo);
       if (chess.isGameOver()) {
         setGameOverMessage(checkGameOverStatus(chess));
@@ -273,26 +529,31 @@ export const App: React.FC = () => {
 
       setIsAiThinking(true);
       try {
-        const evalResult = existingEval || (await stockfish.evaluate(fenToRespondTo, aiDepth));
-        let bestMove = evalResult.bestMove;
+        const aiMoveEval = await stockfish.getAiMove(fenToRespondTo, aiDepth);
+        let chosenUci = aiMoveEval.bestMove;
 
         // Fallback: If engine didn't return a move, pick legal move
-        if (!bestMove || bestMove.length < 4) {
+        if (!chosenUci || chosenUci.length < 4) {
           const legalMoves = chess.moves({ verbose: true });
           if (legalMoves.length > 0) {
             const capture = legalMoves.find((m) => m.captured);
             const chosen = capture || legalMoves[Math.floor(Math.random() * legalMoves.length)];
-            bestMove = `${chosen.from}${chosen.to}${chosen.promotion || ''}`;
+            chosenUci = `${chosen.from}${chosen.to}${chosen.promotion || ''}`;
           }
         }
 
-        if (bestMove && bestMove.length >= 4) {
-          const from = bestMove.substring(0, 2);
-          const to = bestMove.substring(2, 4);
-          const promotion = bestMove.length > 4 ? bestMove[4] : undefined;
+        if (chosenUci && chosenUci.length >= 4) {
+          const from = chosenUci.substring(0, 2);
+          const to = chosenUci.substring(2, 4);
+          const promotion = chosenUci.length > 4 ? chosenUci[4] : undefined;
 
-          // 1.5 second pause so player sees move accent and hears speech feedback
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+          // 1.2 second pause so player sees their own move accent and hears speech feedback
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+
+          // Ensure game wasn't reset or undone while waiting
+          if (currentPlyRef.current !== currentPlyCount) {
+            return;
+          }
 
           const aiMoveResult = chess.move({ from, to, promotion });
           if (aiMoveResult) {
@@ -313,7 +574,7 @@ export const App: React.FC = () => {
 
             if (chess.isGameOver()) {
               const over = checkGameOverStatus(chess);
-              if (gameMode === 'ranked' && activeRankedSessionRef.current) {
+              if (gameModeRef.current === 'ranked' && activeRankedSessionRef.current) {
                 const opp = activeRankedSessionRef.current.opponent;
                 if (chess.isCheckmate()) {
                   const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'loss');
@@ -349,8 +610,7 @@ export const App: React.FC = () => {
                 } else {
                   setGameOverMessage(over);
                 }
-              } else if (gameMode === 'vs-ai') {
-                // Casual practice vs AI - no ELO modification
+              } else if (gameModeRef.current === 'vs-ai') {
                 if (chess.isCheckmate()) {
                   userService.recordCasualMatch('loss');
                   setCurrentUser(userService.getCurrentUser());
@@ -366,63 +626,13 @@ export const App: React.FC = () => {
               }
             }
 
-            // Append AI move to report
-            const analysis: MoveAnalysis = {
-              ply: currentPlyCount,
-              moveNumber: Math.floor(currentPlyCount / 2) + 1,
-              turn: aiMoveResult.color,
-              san: aiMoveResult.san,
-              uci: bestMove,
-              from: aiMoveResult.from,
-              to: aiMoveResult.to,
-              piece: aiMoveResult.piece,
-              captured: aiMoveResult.captured,
+            // Objectively evaluate AI move and update report & EvalBar
+            await recordAndEvaluateMove({
+              plyIndex: currentPlyCount,
               fenBefore: fenToRespondTo,
               fenAfter: newFen,
-              evalBefore: evalResult.cp,
-              evalAfter: evalResult.cp,
-              mateBefore: evalResult.mate,
-              mateAfter: evalResult.mate,
-              winPercentBefore: 50,
-              winPercentAfter: 50,
-              winPercentLoss: 0,
-              centipawnLoss: 0,
-              classification: 'best',
-              classificationReason: 'Ход Stockfish',
-              bestMoveUci: bestMove,
-              bestMoveSan: aiMoveResult.san,
-              bestLinePv: evalResult.pv,
-              depth: evalResult.depth
-            };
-
-            setReport((prev) => {
-              const existingMoves = prev ? [...prev.moves.slice(0, currentPlyCount)] : [];
-              existingMoves.push(analysis);
-
-              const counts = {
-                white: {} as Record<MoveClassification, number>,
-                black: {} as Record<MoveClassification, number>
-              };
-              (Object.keys(CLASSIFICATION_CONFIGS) as MoveClassification[]).forEach((k) => {
-                counts.white[k] = 0;
-                counts.black[k] = 0;
-              });
-              existingMoves.forEach((m) => {
-                if (m.turn === 'w') counts.white[m.classification]++;
-                else counts.black[m.classification]++;
-              });
-
-              return {
-                whiteAccuracy: calculatePlayerAccuracy(existingMoves, 'w'),
-                blackAccuracy: calculatePlayerAccuracy(existingMoves, 'b'),
-                whitePlayer: prev?.whitePlayer || (playerColor === 'w' ? 'Вы' : 'Stockfish'),
-                blackPlayer: prev?.blackPlayer || (playerColor === 'b' ? 'Вы' : 'Stockfish'),
-                event: 'Матч против Stockfish',
-                date: new Date().toISOString().slice(0, 10),
-                result: '*',
-                moves: existingMoves,
-                classificationSummary: counts
-              };
+              moveResult: aiMoveResult,
+              announceAccent: false
             });
           }
         }
@@ -432,7 +642,7 @@ export const App: React.FC = () => {
         setIsAiThinking(false);
       }
     },
-    [aiDepth, playerColor]
+    [aiDepth, recordAndEvaluateMove]
   );
 
   // Player Move Handler
@@ -458,7 +668,7 @@ export const App: React.FC = () => {
       return false;
     }
 
-    // In Puzzle mode, handle puzzle step validation
+    // In Puzzle mode, handle puzzle step validation with detailed Coach Explanations
     if (gameMode === 'puzzles') {
       const activePuzzle = PUZZLES[currentPuzzleIndex] || PUZZLES[0];
       if (!activePuzzle || puzzleStatus === 'solved') return false;
@@ -483,6 +693,8 @@ export const App: React.FC = () => {
         const nextPlies = [...fens.slice(0, currentPly + 1), nextFen];
         setFens(nextPlies);
         setCurrentPly(nextPlies.length - 1);
+        setPuzzleStatus('playing');
+        setPuzzleMistakeAnalysis(null);
 
         if (pMove.captured) sound.playCapture();
         else if (nextFen.includes('+')) sound.playCheck();
@@ -491,6 +703,7 @@ export const App: React.FC = () => {
         const opponentStep = puzzleStep + 1;
         if (opponentStep < activePuzzle.solutionMoves.length) {
           setPuzzleStep(opponentStep + 1);
+          sound.speak(`Верно, ${pMove.san}! Теперь найдите продолжение после ответа соперника.`);
           setTimeout(() => {
             try {
               const replyUci = activePuzzle.solutionMoves[opponentStep];
@@ -514,7 +727,7 @@ export const App: React.FC = () => {
                   const pRes = userService.recordPuzzleSolved(activePuzzle.id, activePuzzle.rating);
                   setCurrentUser(userService.getCurrentUser());
                   sound.playVictory();
-                  sound.speak(`Задача решена! Плюс ${pRes.pointsAwarded} баллов.`);
+                  sound.speak(`Задача решена! Плюс ${pRes.pointsAwarded} баллов. ${activePuzzle.explanation}`);
                   setScoreDelta({
                     id: `puzzle-${Date.now()}`,
                     type: 'puzzle',
@@ -537,7 +750,7 @@ export const App: React.FC = () => {
           const pRes = userService.recordPuzzleSolved(activePuzzle.id, activePuzzle.rating);
           setCurrentUser(userService.getCurrentUser());
           sound.playVictory();
-          sound.speak(`Задача решена! Плюс ${pRes.pointsAwarded} баллов.`);
+          sound.speak(`Задача решена! Плюс ${pRes.pointsAwarded} баллов. ${activePuzzle.explanation}`);
           setScoreDelta({
             id: `puzzle-${Date.now()}`,
             type: 'puzzle',
@@ -551,9 +764,18 @@ export const App: React.FC = () => {
         }
         return true;
       } else {
+        const mistake = analyzePuzzleMistake(
+          activePuzzle,
+          puzzleStep,
+          currentBoardFen,
+          pMove.san,
+          playedUci,
+          chess.fen()
+        );
+        setPuzzleMistakeAnalysis(mistake);
         setPuzzleStatus('failed');
         sound.playBlunder();
-        sound.speak('Неверный ход');
+        sound.speak(mistake.whyWrong);
         return false;
       }
     }
@@ -571,12 +793,14 @@ export const App: React.FC = () => {
 
     if (!moveResult) return false;
 
-    // Cancel running review
+    // Cancel running PGN review if user makes an interactive move
     if (isAnalyzing) {
       gameAnalyzer.cancel();
       setIsAnalyzing(false);
     }
 
+    const plyIndex = currentPly;
+    const fenBefore = currentBoardFen;
     const newFen = chess.fen();
     const newFens = [...fens.slice(0, currentPly + 1), newFen];
     setFens(newFens);
@@ -612,6 +836,18 @@ export const App: React.FC = () => {
         const opp = activeRankedSession.opponent;
         if (chess.isCheckmate()) {
           const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'win');
+          if (activeRankedSession.isOnlinePvP) {
+            const newOppElo = userService.applyOpponentMatchResult(
+              opp.id,
+              opp.username,
+              opp.elo,
+              matchRes.oldElo,
+              'loss'
+            );
+            setActiveRankedSession((prev) =>
+              prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
+            );
+          }
           setCurrentUser(userService.getCurrentUser());
           setGameOverMessage(`${overStatus} • ${matchRes.message}`);
           sound.playVictory();
@@ -628,6 +864,18 @@ export const App: React.FC = () => {
           });
         } else if (chess.isDraw() || chess.isStalemate()) {
           const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
+          if (activeRankedSession.isOnlinePvP) {
+            const newOppElo = userService.applyOpponentMatchResult(
+              opp.id,
+              opp.username,
+              opp.elo,
+              matchRes.oldElo,
+              'draw'
+            );
+            setActiveRankedSession((prev) =>
+              prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
+            );
+          }
           setCurrentUser(userService.getCurrentUser());
           setGameOverMessage(`${overStatus} • ${matchRes.message}`);
           setScoreDelta({
@@ -645,7 +893,6 @@ export const App: React.FC = () => {
           setGameOverMessage(overStatus);
         }
       } else if (gameMode === 'vs-ai') {
-        // Casual practice vs AI - no ELO modification
         if (chess.isCheckmate()) {
           userService.recordCasualMatch('win');
           setCurrentUser(userService.getCurrentUser());
@@ -661,135 +908,22 @@ export const App: React.FC = () => {
       }
     } else {
       setGameOverMessage(null);
-      // Trigger AI turn if ranked AI or vs-ai
+    }
+
+    // Evaluate player's move at full Stockfish strength and then trigger AI reply if needed
+    recordAndEvaluateMove({
+      plyIndex,
+      fenBefore,
+      fenAfter: newFen,
+      moveResult,
+      announceAccent: true
+    }).then(() => {
       if (
+        !chess.isGameOver() &&
         (gameMode === 'vs-ai' || (gameMode === 'ranked' && !activeRankedSession?.isOnlinePvP)) &&
         chess.turn() !== playerColor
       ) {
-        setTimeout(() => {
-          triggerAiMove(newFen, nextPly);
-        }, 300);
-      }
-    }
-
-    const plyIndex = currentPly;
-    const fenBefore = currentBoardFen;
-    const fenAfter = newFen;
-    const moveSan = moveResult.san;
-    const moveUci = `${moveResult.from}${moveResult.to}${moveResult.promotion || ''}`;
-    const turn = moveResult.color;
-    const piece = moveResult.piece;
-    const captured = moveResult.captured;
-
-    const currentMoveObj = currentPly > 0 && report?.moves ? report.moves[currentPly - 1] : undefined;
-    const prevEval = currentMoveObj ? currentMoveObj.evalAfter : 0;
-    const prevMate = currentMoveObj ? currentMoveObj.mateAfter : null;
-    const prevBestUci = currentMoveObj?.bestMoveUci || moveUci;
-
-    const evalDepth = gameMode === 'vs-ai' ? aiDepth : 12;
-
-    // Real-time evaluation of player move
-    stockfish.evaluate(fenAfter, evalDepth).then((evalResult) => {
-      const classResult = classifySingleMove({
-        ply: plyIndex,
-        turn,
-        san: moveSan,
-        uci: moveUci,
-        piece,
-        captured,
-        fenBefore,
-        fenAfter,
-        evalBefore: prevEval,
-        evalAfter: evalResult.cp,
-        mateBefore: prevMate,
-        mateAfter: evalResult.mate,
-        bestMoveUci: prevBestUci
-      });
-
-      const analysis: MoveAnalysis = {
-        ply: plyIndex,
-        moveNumber: Math.floor(plyIndex / 2) + 1,
-        turn,
-        san: moveSan,
-        uci: moveUci,
-        from: moveResult.from,
-        to: moveResult.to,
-        piece,
-        captured,
-        fenBefore,
-        fenAfter,
-        evalBefore: prevEval,
-        evalAfter: evalResult.cp,
-        mateBefore: prevMate,
-        mateAfter: evalResult.mate,
-        winPercentBefore: classResult.winBefore,
-        winPercentAfter: classResult.winAfter,
-        winPercentLoss: classResult.winLoss,
-        centipawnLoss: classResult.cpLoss,
-        classification: classResult.classification,
-        classificationReason: classResult.reason,
-        bestMoveUci: evalResult.bestMove,
-        bestMoveSan: uciToSan(fenAfter, evalResult.bestMove),
-        bestLinePv: evalResult.pv,
-        depth: evalResult.depth
-      };
-
-      setReport((prev) => {
-        const existingMoves = prev ? [...prev.moves.slice(0, plyIndex)] : [];
-        existingMoves.push(analysis);
-
-        const counts = {
-          white: {} as Record<MoveClassification, number>,
-          black: {} as Record<MoveClassification, number>
-        };
-        (Object.keys(CLASSIFICATION_CONFIGS) as MoveClassification[]).forEach((k) => {
-          counts.white[k] = 0;
-          counts.black[k] = 0;
-        });
-        existingMoves.forEach((m) => {
-          if (m.turn === 'w') counts.white[m.classification]++;
-          else counts.black[m.classification]++;
-        });
-
-        return {
-          whiteAccuracy: calculatePlayerAccuracy(existingMoves, 'w'),
-          blackAccuracy: calculatePlayerAccuracy(existingMoves, 'b'),
-          whitePlayer: prev?.whitePlayer || (gameMode === 'vs-ai' ? (playerColor === 'w' ? 'Вы' : 'Stockfish') : 'Белые'),
-          blackPlayer: prev?.blackPlayer || (gameMode === 'vs-ai' ? (playerColor === 'b' ? 'Вы' : 'Stockfish') : 'Черные'),
-          event: gameMode === 'vs-ai' ? 'Матч против Stockfish' : prev?.event || 'Интерактивный разбор',
-          date: new Date().toISOString().slice(0, 10),
-          result: '*',
-          moves: existingMoves,
-          classificationSummary: counts
-        };
-      });
-
-      // 1.5s Move Status Accent & Voice announcement
-      const isCheck = chess.inCheck();
-      const meta = CLASSIFICATION_CONFIGS[classResult.classification];
-      setMoveAccent({
-        classification: classResult.classification,
-        nameRu: meta.nameRu,
-        reason: classResult.reason,
-        isCheck,
-        san: moveSan
-      });
-
-      if (moveAccentTimerRef.current) clearTimeout(moveAccentTimerRef.current);
-      moveAccentTimerRef.current = window.setTimeout(() => {
-        setMoveAccent(null);
-      }, 1500);
-
-      // Voice synthesis via Web Speech API
-      let voiceAnnouncement = meta.nameRu;
-      if (isCheck) {
-        voiceAnnouncement += ', Шах!';
-      }
-      sound.speak(voiceAnnouncement);
-
-      // In vs-ai mode, trigger AI counter-move
-      if (gameMode === 'vs-ai' && !chess.isGameOver()) {
-        triggerAiMove(newFen, nextPly, evalResult);
+        triggerAiMove(newFen, nextPly);
       }
     });
 
@@ -902,6 +1036,7 @@ export const App: React.FC = () => {
       setIsFlipped(puzzle.turn === 'b');
       setPuzzleStatus('playing');
       setPuzzleStep(0);
+      setPuzzleMistakeAnalysis(null);
       setTotalAttemptedPuzzles((c) => c + 1);
     },
     []
@@ -928,6 +1063,7 @@ export const App: React.FC = () => {
     setCurrentPly(0);
     setPuzzleStatus('playing');
     setPuzzleStep(0);
+    setPuzzleMistakeAnalysis(null);
   }, [currentPuzzleIndex]);
 
   const handleShowSolution = useCallback(() => {
@@ -946,7 +1082,7 @@ export const App: React.FC = () => {
       setFens(solutionFens);
       setCurrentPly(solutionFens.length - 1);
       setPuzzleStatus('failed');
-      sound.speak('Вот решение задачи');
+      sound.speak(`Решение задачи: ${puzzle.explanation}`);
     } catch (err) {
       console.error(err);
     }
@@ -961,79 +1097,208 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleOpponentOnlineMove = useCallback((movePayload: MovePayload) => {
-    const currentBoardFen = fensRef.current[currentPlyRef.current] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-    const chess = new Chess(currentBoardFen);
-    try {
-      const res = chess.move({
-        from: movePayload.from,
-        to: movePayload.to,
-        promotion: (movePayload.promotion as any) || undefined
-      });
-      if (res) {
-        if (typeof movePayload.whiteTime === 'number') {
-          setWhiteTime(movePayload.whiteTime);
-        }
-        if (typeof movePayload.blackTime === 'number') {
-          setBlackTime(movePayload.blackTime);
-        }
-        const nextFen = chess.fen();
-        const updatedFens = [...fensRef.current.slice(0, currentPlyRef.current + 1), nextFen];
-        setFens(updatedFens);
-        setCurrentPly(updatedFens.length - 1);
-        if (res.captured) sound.playCapture();
-        else if (nextFen.includes('+') || chess.inCheck()) {
-          sound.playCheck();
-          sound.speak('Вам шах!');
-        } else sound.playMove();
+  /**
+   * Undo last move for Review, VS-AI, and 1v1 PvP modes
+   */
+  const handleUndoMove = useCallback(() => {
+    if (gameMode === 'ranked' || gameMode === 'puzzles') return;
+    if (currentPly <= 0 || fens.length <= 1) return;
 
-        if (chess.isGameOver()) {
-          const over = checkGameOverStatus(chess);
-          if (activeRankedSessionRef.current) {
-            const opp = activeRankedSessionRef.current.opponent;
-            if (chess.isCheckmate()) {
-              const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'loss');
-              setCurrentUser(userService.getCurrentUser());
-              setGameOverMessage(`${over} • ${matchRes.message}`);
-              sound.playDefeat();
-              setScoreDelta({
-                id: `elo-${Date.now()}`,
-                type: 'elo',
-                title: `Поражение против ${opp.username}`,
-                delta: matchRes.eloChange,
-                oldValue: matchRes.oldElo,
-                newValue: matchRes.newElo,
-                unit: 'ELO',
-                isPositive: false
-              });
-            } else if (chess.isDraw() || chess.isStalemate()) {
-              const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
-              setCurrentUser(userService.getCurrentUser());
-              setGameOverMessage(`${over} • ${matchRes.message}`);
-              setScoreDelta({
-                id: `elo-${Date.now()}`,
-                type: 'elo',
-                title: 'Ничья',
-                delta: 0,
-                oldValue: matchRes.oldElo,
-                newValue: matchRes.newElo,
-                unit: 'ELO',
-                isPositive: false,
-                isNeutral: true
-              });
+    stockfish.clearQueue();
+    setIsAiThinking(false);
+    setGameOverMessage(null);
+    setMoveAccent(null);
+    setIsPreviewingLine(false);
+    setPreviewFen(null);
+
+    let targetPly = currentPly - 1;
+    if (gameMode === 'vs-ai') {
+      // If it's currently player's turn and at least 2 plies have been played,
+      // undo both AI's reply and player's move so it returns to player's turn.
+      const currentFenStr = fens[currentPly] || fens[fens.length - 1];
+      let turn: 'w' | 'b' = 'w';
+      try {
+        turn = new Chess(currentFenStr).turn();
+      } catch {
+        turn = 'w';
+      }
+      if (turn === playerColor && currentPly >= 2) {
+        targetPly = currentPly - 2;
+      } else {
+        targetPly = Math.max(0, currentPly - 1);
+      }
+      // If player is Black and we rolled back to ply 0 (White's turn), keep at ply 1
+      if (playerColor === 'b' && targetPly === 0 && fens.length > 1) {
+        targetPly = 1;
+      }
+    }
+
+    const nextFens = fens.slice(0, targetPly + 1);
+    setFens(nextFens);
+    setCurrentPly(targetPly);
+
+    setReport((prev) => {
+      if (!prev) return prev;
+      const slicedMoves = prev.moves.slice(0, targetPly).filter(Boolean);
+      const counts = {
+        white: {} as Record<MoveClassification, number>,
+        black: {} as Record<MoveClassification, number>
+      };
+      (Object.keys(CLASSIFICATION_CONFIGS) as MoveClassification[]).forEach((k) => {
+        counts.white[k] = 0;
+        counts.black[k] = 0;
+      });
+      slicedMoves.forEach((m) => {
+        if (m.turn === 'w') counts.white[m.classification]++;
+        else counts.black[m.classification]++;
+      });
+
+      return {
+        ...prev,
+        whiteAccuracy: calculatePlayerAccuracy(slicedMoves, 'w'),
+        blackAccuracy: calculatePlayerAccuracy(slicedMoves, 'b'),
+        moves: slicedMoves,
+        classificationSummary: counts
+      };
+    });
+
+    sound.playMove();
+  }, [gameMode, currentPly, fens, playerColor]);
+
+  // Keyboard shortcut Ctrl+Z to undo move in Review, VS-AI, and 1v1 PvP
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        if (gameMode === 'review' || gameMode === 'vs-ai' || gameMode === 'pvp') {
+          e.preventDefault();
+          handleUndoMove();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [gameMode, handleUndoMove]);
+
+  const handleOpponentOnlineMove = useCallback(
+    (movePayload: MovePayload) => {
+      const plyIndex = currentPlyRef.current;
+      const currentBoardFen =
+        fensRef.current[plyIndex] ||
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+      const chess = new Chess(currentBoardFen);
+      try {
+        const res = chess.move({
+          from: movePayload.from,
+          to: movePayload.to,
+          promotion: (movePayload.promotion as any) || undefined
+        });
+        if (res) {
+          if (typeof movePayload.whiteTime === 'number') {
+            setWhiteTime(movePayload.whiteTime);
+          }
+          if (typeof movePayload.blackTime === 'number') {
+            setBlackTime(movePayload.blackTime);
+          }
+          const nextFen = chess.fen();
+          const updatedFens = [...fensRef.current.slice(0, plyIndex + 1), nextFen];
+          setFens(updatedFens);
+          setCurrentPly(updatedFens.length - 1);
+          if (res.captured) sound.playCapture();
+          else if (nextFen.includes('+') || chess.inCheck()) {
+            sound.playCheck();
+            sound.speak('Вам шах!');
+          } else sound.playMove();
+
+          // Evaluate opponent's move so EvalBar and Summary stay 100% synced
+          recordAndEvaluateMove({
+            plyIndex,
+            fenBefore: currentBoardFen,
+            fenAfter: nextFen,
+            moveResult: res,
+            announceAccent: false
+          });
+
+          if (chess.isGameOver()) {
+            const over = checkGameOverStatus(chess);
+            if (activeRankedSessionRef.current) {
+              const opp = activeRankedSessionRef.current.opponent;
+              if (chess.isCheckmate()) {
+                const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'loss');
+                const newOppElo = userService.applyOpponentMatchResult(
+                  opp.id,
+                  opp.username,
+                  opp.elo,
+                  matchRes.oldElo,
+                  'win'
+                );
+                setActiveRankedSession((prev) =>
+                  prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
+                );
+                setCurrentUser(userService.getCurrentUser());
+                setGameOverMessage(`${over} • ${matchRes.message}`);
+                sound.playDefeat();
+                setScoreDelta({
+                  id: `elo-${Date.now()}`,
+                  type: 'elo',
+                  title: `Поражение против ${opp.username}`,
+                  delta: matchRes.eloChange,
+                  oldValue: matchRes.oldElo,
+                  newValue: matchRes.newElo,
+                  unit: 'ELO',
+                  isPositive: false
+                });
+              } else if (chess.isDraw() || chess.isStalemate()) {
+                const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
+                const newOppElo = userService.applyOpponentMatchResult(
+                  opp.id,
+                  opp.username,
+                  opp.elo,
+                  matchRes.oldElo,
+                  'draw'
+                );
+                setActiveRankedSession((prev) =>
+                  prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
+                );
+                setCurrentUser(userService.getCurrentUser());
+                setGameOverMessage(`${over} • ${matchRes.message}`);
+                setScoreDelta({
+                  id: `elo-${Date.now()}`,
+                  type: 'elo',
+                  title: 'Ничья',
+                  delta: 0,
+                  oldValue: matchRes.oldElo,
+                  newValue: matchRes.newElo,
+                  unit: 'ELO',
+                  isPositive: false,
+                  isNeutral: true
+                });
+              }
             }
           }
         }
+      } catch (err) {
+        console.error('Opponent move error:', err);
       }
-    } catch (err) {
-      console.error('Opponent move error:', err);
-    }
-  }, []);
+    },
+    [recordAndEvaluateMove]
+  );
 
   const handleOpponentResign = useCallback(() => {
     if (activeRankedSessionRef.current) {
       const opp = activeRankedSessionRef.current.opponent;
       const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'win');
+      if (activeRankedSessionRef.current.isOnlinePvP) {
+        const newOppElo = userService.applyOpponentMatchResult(
+          opp.id,
+          opp.username,
+          opp.elo,
+          matchRes.oldElo,
+          'loss'
+        );
+        setActiveRankedSession((prev) =>
+          prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
+        );
+      }
       setCurrentUser(userService.getCurrentUser());
       setGameOverMessage(`Соперник ${opp.username} сдался! • ${matchRes.message}`);
       sound.playVictory();
@@ -1054,6 +1319,18 @@ export const App: React.FC = () => {
     if (activeRankedSessionRef.current) {
       const opp = activeRankedSessionRef.current.opponent;
       const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'win');
+      if (activeRankedSessionRef.current.isOnlinePvP) {
+        const newOppElo = userService.applyOpponentMatchResult(
+          opp.id,
+          opp.username,
+          opp.elo,
+          matchRes.oldElo,
+          'loss'
+        );
+        setActiveRankedSession((prev) =>
+          prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
+        );
+      }
       setCurrentUser(userService.getCurrentUser());
       setGameOverMessage(`У соперника ${opp.username} истекло время! • ${matchRes.message}`);
       sound.playVictory();
@@ -1079,6 +1356,18 @@ export const App: React.FC = () => {
       }
       const opp = activeRankedSession.opponent;
       const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'loss');
+      if (activeRankedSession.isOnlinePvP) {
+        const newOppElo = userService.applyOpponentMatchResult(
+          opp.id,
+          opp.username,
+          opp.elo,
+          matchRes.oldElo,
+          'win'
+        );
+        setActiveRankedSession((prev) =>
+          prev ? { ...prev, opponent: { ...prev.opponent, elo: newOppElo } } : prev
+        );
+      }
       setCurrentUser(userService.getCurrentUser());
       setGameOverMessage(`Вы сдались • ${matchRes.message}`);
       sound.playDefeat();
@@ -1386,6 +1675,9 @@ export const App: React.FC = () => {
   };
 
   const handleChangeMode = (newMode: GameMode) => {
+    gameAnalyzer.cancel();
+    stockfish.clearQueue();
+    setIsAnalyzing(false);
     setGameMode(newMode);
     if (newMode === 'ranked') {
       if (!activeRankedSession || Boolean(gameOverMessage)) {
@@ -1398,10 +1690,9 @@ export const App: React.FC = () => {
     } else if (newMode === 'puzzles') {
       startPuzzlesMode(currentPuzzleIndex);
     } else {
-      gameAnalyzer.cancel();
-      stockfish.clearQueue();
       setGameOverMessage(null);
       loadPgnIntoState(currentPgn, gameTitle);
+      runAnalysis(currentPgn, analysisDepth);
     }
   };
 
@@ -1463,8 +1754,27 @@ export const App: React.FC = () => {
 
   const currentFen = previewFen || fens[currentPly] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
   const hideEngineHints = (gameMode === 'pvp' || gameMode === 'ranked') && !gameOverMessage;
-  const evalCp = hideEngineHints ? 0 : currentMove ? currentMove.evalAfter : 0;
-  const mate = hideEngineHints ? null : currentMove ? currentMove.mateAfter : null;
+
+  // Always-live evaluation for EvalBar ("полоса доминации") across all modes
+  const cachedCurrentEval = positionEvalCacheRef.current.get(currentFen);
+  const fallbackQuickEval = quickEvaluateFen(currentFen);
+  const evalCp = currentMove
+    ? currentMove.evalAfter
+    : cachedCurrentEval
+    ? cachedCurrentEval.cp
+    : currentPly === 0 && gameMode !== 'puzzles'
+    ? 0
+    : fallbackQuickEval.cp;
+  const mate = currentMove
+    ? currentMove.mateAfter
+    : cachedCurrentEval
+    ? cachedCurrentEval.mate
+    : fallbackQuickEval.mate;
+
+  const canUndoMove =
+    (gameMode === 'review' || gameMode === 'vs-ai' || gameMode === 'pvp') &&
+    currentPly > 0 &&
+    !(gameMode === 'vs-ai' && playerColor === 'b' && currentPly <= 1);
 
   const currentTurnColor: 'w' | 'b' = (() => {
     const latestFen = fens[fens.length - 1] || currentFen;
@@ -1623,6 +1933,8 @@ export const App: React.FC = () => {
         }}
         onOpenMyProfile={() => setSelectedProfileUser(currentUser)}
         onOpenAuth={() => setIsAuthOpen(true)}
+        canUndoMove={canUndoMove}
+        onUndoMove={handleUndoMove}
       />
 
       {/* Floating incoming friend challenge notification */}
@@ -1652,8 +1964,8 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      <main className="flex-1 grid grid-cols-1 landscape:grid-cols-[1fr_340px] md:landscape:grid-cols-[1fr_400px] lg:grid-cols-[1fr_420px] overflow-hidden">
-        <section className="relative h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A] p-1 sm:p-2">
+      <main className="flex-1 grid grid-cols-1 grid-rows-[auto_1fr] landscape:grid-rows-1 landscape:grid-cols-[1fr_340px] md:landscape:grid-cols-[1fr_400px] lg:grid-rows-1 lg:grid-cols-[1fr_420px] overflow-hidden">
+        <section className="relative h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A] px-1 py-1 sm:p-2">
           <ScoreDeltaNotification data={scoreDelta} onDismiss={() => setScoreDelta(null)} />
           <ChessboardArea
             fen={currentFen}
@@ -1690,6 +2002,8 @@ export const App: React.FC = () => {
             onOpenBottomPlayerProfile={() => setSelectedProfileUser(currentUser)}
             canResign={(gameMode === 'ranked' || gameMode === 'vs-ai') && !gameOverMessage && fens.length > 1}
             onResignGame={handleResignCurrentGame}
+            canUndoMove={canUndoMove}
+            onUndoMove={handleUndoMove}
           />
         </section>
 
@@ -1699,6 +2013,7 @@ export const App: React.FC = () => {
               puzzle={PUZZLES[currentPuzzleIndex] || PUZZLES[0]}
               status={puzzleStatus}
               currentStep={puzzleStep}
+              mistakeAnalysis={puzzleMistakeAnalysis}
               onNextPuzzle={handleNextPuzzle}
               onRandomPuzzle={handleRandomPuzzle}
               onRetry={handleRetryPuzzle}
@@ -1718,7 +2033,7 @@ export const App: React.FC = () => {
               onCancelAnalysis={() => gameAnalyzer.cancel()}
               isPreviewingLine={isPreviewingLine}
               onTogglePreviewLine={handleTogglePreviewLine}
-              hideEngineHints={hideEngineHints}
+              hideEngineHints={false}
             />
           )}
         </section>

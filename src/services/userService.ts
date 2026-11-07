@@ -113,16 +113,26 @@ class UserService {
       if (!existing) {
         map.set(rem.id, { ...rem, isRegistered: true, friends: rem.friends || [] });
       } else {
-        const higherElo = Math.max(existing.elo, rem.elo);
-        const higherPoints = Math.max(existing.puzzlePoints, rem.puzzlePoints);
-        const allSolved = Array.from(new Set([...existing.solvedPuzzleIds, ...rem.solvedPuzzleIds]));
+        const isCurrentUser = rem.id === this.currentUserId;
+        const remGames = rem.stats?.totalGames || 0;
+        const localGames = existing.stats?.totalGames || 0;
+        const remTime = rem.lastActiveAt ? new Date(rem.lastActiveAt).getTime() : 0;
+        const localTime = existing.lastActiveAt ? new Date(existing.lastActiveAt).getTime() : 0;
+
+        // For any other player, cloud is always the authoritative source of truth.
+        // For current user, prefer whichever state has more played games or newer timestamp.
+        const useRemoteStats = !isCurrentUser || remGames > localGames || (remGames === localGames && remTime >= localTime);
+
+        const allSolved = Array.from(new Set([...(existing.solvedPuzzleIds || []), ...(rem.solvedPuzzleIds || [])]));
         const mergedFriends = Array.from(new Set([...(existing.friends || []), ...(rem.friends || [])]));
+
         map.set(rem.id, {
           ...existing,
           ...rem,
           isRegistered: true,
-          elo: higherElo,
-          puzzlePoints: higherPoints,
+          elo: useRemoteStats ? rem.elo : existing.elo,
+          stats: useRemoteStats ? (rem.stats || existing.stats) : existing.stats,
+          puzzlePoints: useRemoteStats ? rem.puzzlePoints : Math.max(existing.puzzlePoints, rem.puzzlePoints),
           solvedPuzzleIds: allSolved,
           friends: mergedFriends
         });
@@ -347,6 +357,72 @@ class UserService {
     }
 
     return { eloChange: delta, oldElo, newElo: user.elo, message };
+  }
+
+  /**
+   * Immediately updates cached opponent ELO & stats locally when a live match finishes,
+   * and schedules a cloud refresh so both players see identical ELO right away.
+   */
+  public applyOpponentMatchResult(
+    opponentId: string,
+    opponentUsername: string,
+    opponentOldElo: number,
+    myOldElo: number,
+    opponentResult: 'win' | 'loss' | 'draw'
+  ): number {
+    const K = 32;
+    const expected = 1 / (1 + Math.pow(10, (myOldElo - opponentOldElo) / 400));
+    let delta = 0;
+    if (opponentResult === 'win') {
+      delta = Math.max(8, Math.min(40, Math.round(K * (1 - expected))));
+    } else if (opponentResult === 'loss') {
+      delta = -Math.max(6, Math.min(32, Math.round(K * expected)));
+    }
+    const newOpponentElo = Math.max(50, opponentOldElo + delta);
+
+    let opp = this.users.find((u) => u.id === opponentId);
+    if (!opp) {
+      opp = {
+        id: opponentId,
+        username: opponentUsername,
+        isRegistered: true,
+        elo: newOpponentElo,
+        puzzlePoints: 0,
+        solvedPuzzleIds: [],
+        friends: [],
+        stats: {
+          wins: opponentResult === 'win' ? 1 : 0,
+          losses: opponentResult === 'loss' ? 1 : 0,
+          draws: opponentResult === 'draw' ? 1 : 0,
+          totalGames: 1
+        },
+        authProvider: 'custom',
+        createdAt: new Date().toISOString().slice(0, 10),
+        lastActiveAt: new Date().toISOString()
+      };
+      this.users.push(opp);
+    } else {
+      opp.elo = newOpponentElo;
+      if (!opp.stats) {
+        opp.stats = { wins: 0, losses: 0, draws: 0, totalGames: 0 };
+      }
+      if (opponentResult === 'win') opp.stats.wins++;
+      else if (opponentResult === 'loss') opp.stats.losses++;
+      else opp.stats.draws++;
+      opp.stats.totalGames++;
+      opp.lastActiveAt = new Date().toISOString();
+    }
+    this.saveUsers();
+
+    // Also pull fresh state from Supabase after opponent finishes syncing
+    setTimeout(() => {
+      this.refreshFromCloud();
+    }, 1500);
+    setTimeout(() => {
+      this.refreshFromCloud();
+    }, 4000);
+
+    return newOpponentElo;
   }
 
   /**

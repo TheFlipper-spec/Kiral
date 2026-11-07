@@ -1,11 +1,24 @@
-import React, { useState } from 'react';
-import type { ChessPuzzle } from '../data/puzzles';
-import { Target, Lightbulb, RotateCcw, ArrowRight, CheckCircle2, XCircle, Shuffle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import type { ChessPuzzle, PuzzleMistakeAnalysis } from '../data/puzzles';
+import {
+  Target,
+  Lightbulb,
+  RotateCcw,
+  ArrowRight,
+  CheckCircle2,
+  XCircle,
+  Shuffle,
+  GraduationCap,
+  Volume2,
+  AlertTriangle
+} from 'lucide-react';
+import { sound } from '../services/soundService';
 
 interface PuzzlePanelProps {
   puzzle: ChessPuzzle;
   status: 'playing' | 'solved' | 'failed';
   currentStep: number;
+  mistakeAnalysis?: PuzzleMistakeAnalysis | null;
   onNextPuzzle: () => void;
   onRandomPuzzle: () => void;
   onRetry: () => void;
@@ -20,6 +33,7 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
   puzzle,
   status,
   currentStep,
+  mistakeAnalysis,
   onNextPuzzle,
   onRandomPuzzle,
   onRetry,
@@ -32,9 +46,19 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
   const [revealedHints, setRevealedHints] = useState<number>(0);
   const [showExplanation, setShowExplanation] = useState<boolean>(false);
 
+  // Reset hints and explanation when puzzle changes
+  useEffect(() => {
+    setRevealedHints(0);
+    setShowExplanation(false);
+  }, [puzzle.id]);
+
   const handleRevealNextHint = () => {
     if (revealedHints < puzzle.hints.length) {
+      const nextHint = puzzle.hints[revealedHints];
       setRevealedHints((prev) => prev + 1);
+      if (nextHint) {
+        sound.speak(nextHint);
+      }
     }
   };
 
@@ -105,14 +129,49 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
           </div>
         </div>
 
+        {/* Interactive Coach Briefing Card */}
+        <div className="p-3 bg-[#15191C] border border-[#1baca6]/35 rounded-md space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[#1baca6] font-mono text-xs font-bold">
+              <GraduationCap className="w-4 h-4 shrink-0" strokeWidth={1.5} />
+              <span>Тренер Kiral: разбор позиции</span>
+            </div>
+            <button
+              onClick={() =>
+                sound.speak(
+                  status === 'solved' || showExplanation
+                    ? puzzle.explanation
+                    : status === 'failed' && mistakeAnalysis
+                    ? `${mistakeAnalysis.whyWrong} ${mistakeAnalysis.coachAdvice}`
+                    : puzzle.coachBrief || puzzle.hints[0] || puzzle.title
+                )
+              }
+              className="px-1.5 py-0.5 rounded bg-[#1F272B] hover:bg-[#283338] text-[#1baca6] text-[10px] font-mono flex items-center gap-1 transition-colors"
+              title="Озвучить комментарий тренера"
+            >
+              <Volume2 className="w-3 h-3" strokeWidth={1.5} />
+              <span>Озвучить</span>
+            </button>
+          </div>
+          <p className="text-[11px] text-[#CCCCCC] leading-relaxed">
+            {puzzle.coachBrief ||
+              `Тема задачи — «${puzzle.theme}». Оцените слабые поля в лагере соперника и найдите форсированное продолжение.`}
+          </p>
+          {currentStep > 0 && status === 'playing' && (
+            <div className="pt-1.5 border-t border-[#1baca6]/20 text-[11px] font-mono text-emerald-400">
+              Первый шаг верный ({puzzle.solutionSans[0]})! Соперник ответил {puzzle.solutionSans[1]}. Найдите решающее продолжение.
+            </div>
+          )}
+        </div>
+
         {/* Status Alert Banner */}
         {status === 'playing' && (
           <div className="p-3 bg-[#181818] border border-[#2E2E2E] rounded-md flex items-center gap-2.5">
-            <div className="w-2 h-2 rounded-full bg-[#1baca6] animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-[#1baca6] animate-pulse shrink-0" />
             <span className="text-xs text-[#CCCCCC]">
               {currentStep === 0
-                ? 'Найдите лучший ход в этой позиции.'
-                : 'Верно! Теперь сделайте следующий ход.'}
+                ? `Ваш ход (${puzzle.turn === 'w' ? 'Белые' : 'Черные'}). Найдите сильнейший тактический удар.`
+                : 'Отлично! Теперь завершите комбинацию следующим ходом.'}
             </span>
           </div>
         )}
@@ -120,26 +179,55 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
         {status === 'solved' && (
           <div className="p-3 bg-[#142318] border border-[#254d31] rounded-md flex items-start gap-2.5">
             <CheckCircle2 className="w-4 h-4 text-[#96bc4b] shrink-0 mt-0.5" strokeWidth={1.5} />
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col gap-1">
               <span className="font-mono font-bold text-[#96bc4b]">
-                Задача решена!
+                Задача блестяще решена!
               </span>
-              <span className="text-[#AAAAAA] text-[11px]">
-                Отличная тактическая зоркость. Все ходы выполнены верно.
+              <span className="text-[#CCCCCC] text-[11px] leading-relaxed">
+                Тренер: «Превосходный расчет! Вы точно использовали мотив «{puzzle.theme}» и довели атаку до конца».
               </span>
             </div>
           </div>
         )}
 
         {status === 'failed' && (
-          <div className="p-3 bg-[#261515] border border-[#4d2525] rounded-md flex items-start gap-2.5">
-            <XCircle className="w-4 h-4 text-[#ca3431] shrink-0 mt-0.5" strokeWidth={1.5} />
-            <div className="flex flex-col gap-0.5">
-              <span className="font-mono font-bold text-[#ca3431]">
-                Неверный ход
-              </span>
-              <span className="text-[#AAAAAA] text-[11px]">
-                Это не лучший ход в данной позиции. Попробуйте еще раз или возьмите подсказку.
+          <div className="p-3 bg-[#261515] border border-[#5c2828] rounded-md space-y-2 animate-in fade-in duration-150">
+            <div className="flex items-start gap-2">
+              <XCircle className="w-4 h-4 text-[#e05252] shrink-0 mt-0.5" strokeWidth={1.5} />
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-bold text-[#e05252]">
+                    Почему этот ход неверный?
+                  </span>
+                  {mistakeAnalysis?.wrongMoveSan && (
+                    <span className="px-1.5 py-0.5 rounded bg-black/40 border border-[#5c2828] font-mono text-[10px] text-rose-300">
+                      Ваш ход: {mistakeAnalysis.wrongMoveSan}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[#E5E5E5] text-[11px] leading-relaxed mt-1">
+                  {mistakeAnalysis
+                    ? mistakeAnalysis.whyWrong
+                    : 'Этот ход выпускает тактическое преимущество и позволяет сопернику консолидировать оборону.'}
+                </p>
+              </div>
+            </div>
+
+            {mistakeAnalysis?.opponentReplySan && (
+              <div className="px-2.5 py-1.5 rounded bg-black/30 border border-[#442020] flex items-center gap-2 text-[11px] font-mono text-rose-200">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>
+                  Опровержение соперника: <strong>{mistakeAnalysis.opponentReplySan}</strong>
+                </span>
+              </div>
+            )}
+
+            <div className="pt-1.5 border-t border-[#442020] text-[11px] text-[#CCCCCC] leading-relaxed">
+              <span className="font-mono font-semibold text-[#f0c15c] mr-1">Совет тренера:</span>
+              <span>
+                {mistakeAnalysis?.coachAdvice ||
+                  puzzle.hints[0] ||
+                  'Проверьте все шахи и взятия незащищенных фигур.'}
               </span>
             </div>
           </div>

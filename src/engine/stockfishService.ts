@@ -3,6 +3,8 @@ import type { EngineEvaluation } from '../types/chess';
 interface QueueTask {
   fen: string;
   depth: number;
+  skillLevel: number;
+  multiPv: number;
   resolve: (evalResult: EngineEvaluation) => void;
 }
 
@@ -13,6 +15,7 @@ export class StockfishService {
   private activeTask: QueueTask | null = null;
   private currentEvaluation: Partial<EngineEvaluation> = {};
   private activeColor: 'w' | 'b' = 'w';
+  private configuredSkillLevel: number = 20;
   private initPromise: Promise<void> | null = null;
   private isTerminated = false;
   private watchdogTimer: number | null = null;
@@ -177,7 +180,7 @@ export class StockfishService {
     if (this.activeTask || this.queue.length === 0) return;
 
     this.activeTask = this.queue.shift()!;
-    const { fen, depth } = this.activeTask;
+    const { fen, depth, skillLevel, multiPv } = this.activeTask;
 
     const fenParts = fen.split(' ');
     this.activeColor = (fenParts[1] as 'w' | 'b') || 'w';
@@ -204,6 +207,8 @@ export class StockfishService {
       return;
     }
 
+    this.send(`setoption name Skill Level value ${skillLevel}`);
+    this.send(`setoption name MultiPV value ${multiPv}`);
     this.send(`position fen ${fen}`);
     this.send(`go depth ${depth}`);
 
@@ -224,11 +229,29 @@ export class StockfishService {
     }, 7000);
   }
 
-  public async evaluate(fen: string, depth = 14): Promise<EngineEvaluation> {
+  /**
+   * Objective full-strength position evaluation (always Skill Level 20, MultiPV 2)
+   */
+  public async evaluate(fen: string, depth = 12): Promise<EngineEvaluation> {
     await this.init();
 
     return new Promise((resolve) => {
-      this.queue.push({ fen, depth, resolve });
+      this.queue.push({ fen, depth, skillLevel: 20, multiPv: 2, resolve });
+      if (!this.activeTask) {
+        this.processNextTask();
+      }
+    });
+  }
+
+  /**
+   * AI move generation using the configured AI difficulty skill level
+   */
+  public async getAiMove(fen: string, depth = 6, skillLevel?: number): Promise<EngineEvaluation> {
+    await this.init();
+    const skill = skillLevel !== undefined ? skillLevel : this.configuredSkillLevel;
+
+    return new Promise((resolve) => {
+      this.queue.push({ fen, depth, skillLevel: skill, multiPv: 1, resolve });
       if (!this.activeTask) {
         this.processNextTask();
       }
@@ -237,7 +260,7 @@ export class StockfishService {
 
   public setSkillLevel(level: number) {
     const clamped = Math.max(0, Math.min(20, Math.round(level)));
-    this.send(`setoption name Skill Level value ${clamped}`);
+    this.configuredSkillLevel = clamped;
   }
 
   public stop() {

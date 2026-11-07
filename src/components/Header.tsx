@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, RotateCcw, BookOpen, Swords, Users, Target, Trophy, User, Cloud, Download, UserPlus, BarChart2 } from 'lucide-react';
+import { Upload, RotateCcw, BookOpen, Swords, Users, Target, Trophy, User, Cloud, Download, UserPlus, BarChart2, Undo2 } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
 import type { ScoreDeltaData } from './ScoreDeltaNotification';
@@ -25,6 +25,8 @@ interface HeaderProps {
   onOpenFriends?: () => void;
   onOpenMyProfile?: () => void;
   onOpenAuth: () => void;
+  canUndoMove?: boolean;
+  onUndoMove?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -44,7 +46,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenLeaderboard,
   onOpenFriends,
   onOpenMyProfile,
-  onOpenAuth
+  onOpenAuth,
+  canUndoMove = false,
+  onUndoMove
 }) => {
   const [installPrompt, setInstallPrompt] = useState<any>(null);
 
@@ -216,6 +220,18 @@ export const Header: React.FC<HeaderProps> = ({
                 </select>
               </div>
 
+              {onUndoMove && (
+                <button
+                  onClick={onUndoMove}
+                  disabled={!canUndoMove}
+                  className="p-1.5 sm:px-2 sm:py-1 rounded text-xs font-mono text-[#f0c15c] hover:text-[#ffd875] bg-[#161616] border border-[#262626] hover:bg-[#202020] disabled:opacity-35 transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
+                  title="Отменить ход (Ctrl+Z)"
+                >
+                  <Undo2 className="w-3.5 h-3.5" strokeWidth={1.5} />
+                  <span className="hidden xl:inline">Отмена</span>
+                </button>
+              )}
+
               <button
                 onClick={onReset}
                 className="p-1.5 sm:px-2.5 sm:py-1 rounded text-xs font-mono text-[#CCCCCC] hover:text-white bg-[#161616] border border-[#262626] hover:bg-[#202020] transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
@@ -239,14 +255,27 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           {gameMode === 'pvp' && (
-            <button
-              onClick={onReset}
-              className="px-2 py-1 rounded text-xs font-mono text-[#CCCCCC] hover:text-white bg-[#161616] border border-[#262626] hover:bg-[#202020] transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
-              title="Начать новую партию 1 на 1"
-            >
-              <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} />
-              <span className="hidden sm:inline">Заново</span>
-            </button>
+            <>
+              {onUndoMove && (
+                <button
+                  onClick={onUndoMove}
+                  disabled={!canUndoMove}
+                  className="p-1.5 sm:px-2 sm:py-1 rounded text-xs font-mono text-[#f0c15c] hover:text-[#ffd875] bg-[#161616] border border-[#262626] hover:bg-[#202020] disabled:opacity-35 transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
+                  title="Отменить ход (Ctrl+Z)"
+                >
+                  <Undo2 className="w-3.5 h-3.5" strokeWidth={1.5} />
+                  <span className="hidden sm:inline">Отмена</span>
+                </button>
+              )}
+              <button
+                onClick={onReset}
+                className="px-2 py-1 rounded text-xs font-mono text-[#CCCCCC] hover:text-white bg-[#161616] border border-[#262626] hover:bg-[#202020] transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
+                title="Начать новую партию 1 на 1"
+              >
+                <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} />
+                <span className="hidden sm:inline">Заново</span>
+              </button>
+            </>
           )}
 
           {gameMode === 'puzzles' && (
@@ -262,6 +291,17 @@ export const Header: React.FC<HeaderProps> = ({
 
           {gameMode === 'review' && (
             <>
+              {onUndoMove && (
+                <button
+                  onClick={onUndoMove}
+                  disabled={!canUndoMove}
+                  className="hidden sm:flex p-1.5 sm:px-2 sm:py-1 rounded text-xs font-mono text-[#f0c15c] hover:text-[#ffd875] hover:bg-[#161616] border border-[#222222] disabled:opacity-35 transition-colors items-center gap-1 whitespace-nowrap shrink-0"
+                  title="Отменить ход (Ctrl+Z)"
+                >
+                  <Undo2 className="w-3.5 h-3.5" strokeWidth={1.5} />
+                  <span className="hidden xl:inline">Отмена</span>
+                </button>
+              )}
               <button
                 onClick={onReset}
                 className="p-1.5 sm:px-2 sm:py-1 rounded text-xs font-mono text-[#888888] hover:text-[#EDEDED] hover:bg-[#161616] border border-[#222222] transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"

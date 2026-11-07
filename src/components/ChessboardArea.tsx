@@ -21,7 +21,8 @@ import {
   UserCheck,
   User,
   Flag,
-  Bot
+  Bot,
+  Undo2
 } from 'lucide-react';
 
 export interface MoveAccentInfo {
@@ -74,6 +75,8 @@ interface ChessboardAreaProps {
   onOpenBottomPlayerProfile?: () => void;
   canResign?: boolean;
   onResignGame?: () => void;
+  canUndoMove?: boolean;
+  onUndoMove?: () => void;
 }
 
 export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
@@ -107,7 +110,9 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   onOpenTopPlayerProfile,
   onOpenBottomPlayerProfile,
   canResign = false,
-  onResignGame
+  onResignGame,
+  canUndoMove = false,
+  onUndoMove
 }) => {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -314,7 +319,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     <div className="flex flex-col items-center justify-center px-2 py-1 sm:p-2 select-none h-full w-full overflow-hidden">
       {/* Top Player / Opponent Bar */}
       {topPlayer && (
-        <div className="w-full max-w-[330px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[270px] mb-1.5 flex items-center justify-between px-2.5 py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0">
+        <div className="w-full max-w-[270px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[260px] mb-1 sm:mb-1.5 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0">
           <div className="flex items-center gap-2 truncate">
             <span
               className={`w-3 h-3 rounded-sm border shrink-0 ${
@@ -383,7 +388,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       )}
 
       {/* Board & Eval Bar Container (pixel-aligned height) */}
-      <div className="flex items-stretch gap-2 sm:gap-2.5 w-full max-w-[330px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[270px] relative shrink-0">
+      <div className="flex items-stretch gap-2 sm:gap-2.5 w-full max-w-[270px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[260px] relative shrink-0">
         {/* Vertical Eval Bar */}
         <EvalBar evalCp={evalCp} mate={mate} flipped={isFlipped} />
 
@@ -583,7 +588,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
 
       {/* Bottom Player Bar */}
       {bottomPlayer && (
-        <div className="w-full max-w-[330px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[270px] mt-1.5 flex items-center justify-between px-2.5 py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0">
+        <div className="w-full max-w-[270px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[260px] mt-1 sm:mt-1.5 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0">
           <div className="flex items-center gap-2 truncate">
             <span
               className={`w-3 h-3 rounded-sm border shrink-0 ${
@@ -604,6 +609,16 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            {canUndoMove && onUndoMove && (
+              <button
+                onClick={onUndoMove}
+                className="px-1.5 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#3a3a3a] text-[#f0c15c] hover:text-[#ffd875] text-[10px] flex items-center gap-1 transition-colors"
+                title="Отменить последний ход (Ctrl+Z)"
+              >
+                <Undo2 className="w-3 h-3" />
+                <span>Отменить ход</span>
+              </button>
+            )}
             {onOpenBottomPlayerProfile && (
               <button
                 onClick={onOpenBottomPlayerProfile}
@@ -644,7 +659,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       )}
 
       {/* Navigation & Controls Bar */}
-      <div className="w-full max-w-[330px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[270px] mt-1.5 flex items-center justify-between px-2 py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0">
+      <div className="w-full max-w-[270px] sm:max-w-[430px] lg:max-w-[470px] landscape:max-lg:max-w-[260px] mt-1 sm:mt-1.5 flex items-center justify-between px-2 py-0.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0">
         {/* Left: Move Counter or AI Thinking Status */}
         <div className="text-xs font-mono text-[#888888] flex items-center gap-1.5 min-w-[50px] sm:min-w-[80px]">
           {isAiThinking ? (
