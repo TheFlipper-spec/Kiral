@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Check, Shield, LogIn, Lock, LogOut, Settings, RefreshCw } from 'lucide-react';
+import { X, User, Shield, LogIn, Lock, LogOut, Settings, RefreshCw } from 'lucide-react';
 import { userService } from '../services/userService';
 import type { UserProfile } from '../services/userService';
 import { cloudDatabase } from '../services/cloudDatabase';
@@ -117,8 +117,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  const allUsers = userService.getAllUsers();
-
   const handleLoginOrCreate = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = usernameInput.trim();
@@ -150,14 +148,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setSuccessMsg(null);
       onClose();
     }, 700);
-  };
-
-  const handleSwitchProfile = (userId: string) => {
-    const switched = userService.switchUser(userId);
-    if (switched) {
-      onUserChanged(switched);
-      onClose();
-    }
   };
 
   const handleSyncCloudNow = async () => {
@@ -419,38 +409,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <Shield className="w-3.5 h-3.5 text-[#38bdf8]" />
               <span>Войти через Google / GitHub / Email (Auth0)</span>
             </button>
-          )}
-
-          {/* Multiple Accounts Switcher on this device */}
-          {allUsers.length > 1 && (
-            <div className="pt-1">
-              <span className="text-[10px] font-mono text-[#666666] uppercase tracking-wider block mb-1.5">
-                Игроки на этом устройстве:
-              </span>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
-                {allUsers.map((u) => {
-                  const isActive = u.id === currentUser.id;
-                  return (
-                    <button
-                      key={u.id}
-                      type="button"
-                      onClick={() => handleSwitchProfile(u.id)}
-                      className={`w-full px-2.5 py-1.5 rounded text-xs font-mono flex items-center justify-between border transition-colors ${
-                        isActive
-                          ? 'bg-[#1baca6]/15 border-[#1baca6]/40 text-white'
-                          : 'bg-[#161616] border-[#222222] text-[#888888] hover:text-[#CCCCCC]'
-                      }`}
-                    >
-                      <span className="font-semibold truncate">{u.username}</span>
-                      <div className="flex items-center gap-2 shrink-0 text-[11px]">
-                        <span>{u.elo} ELO</span>
-                        {isActive && <Check className="w-3.5 h-3.5 text-[#1baca6]" />}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           )}
 
           {/* Owner Master Password Prompt (Only shown when triggered via secret chord Ctrl+Alt+Shift+K or #kiral-admin) */}

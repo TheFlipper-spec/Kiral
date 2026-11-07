@@ -116,11 +116,12 @@ class UserService {
       });
       const savedCurrentId = localStorage.getItem(STORAGE_CURRENT_USER_ID);
 
-      // Device account isolation: Keep ONLY accounts that were authenticated on THIS device
-      // (either have local password, or is the current active player, or is guest).
+      // Strict Account Isolation & Security:
+      // Keep ONLY accounts that were authenticated on THIS device with verified credentials.
+      // Foreign players / match opponents (like Kosoubik) are never kept in this device's storage.
       this.users = Array.from(dedupMap.values()).filter((u) => {
         if (!u.isRegistered || u.authProvider === 'guest') return true;
-        return Boolean(u.password) || u.id === savedCurrentId;
+        return Boolean(u.password) && (u.id === savedCurrentId || !savedCurrentId);
       });
 
       if (savedCurrentId && this.users.some(u => u.id === savedCurrentId)) {
@@ -142,10 +143,10 @@ class UserService {
           createdAt: new Date().toISOString().slice(0, 10),
           lastActiveAt: new Date().toISOString()
         };
-        this.users.push(defaultPlayer);
+        this.users = [defaultPlayer];
         this.currentUserId = defaultPlayer.id;
-        this.saveUsers();
       }
+      this.saveUsers();
       localStorage.setItem(STORAGE_CURRENT_USER_ID, this.currentUserId);
     } catch {
       this.users = [];
@@ -394,7 +395,7 @@ class UserService {
           lastActiveAt: new Date().toISOString()
         };
       }
-      this.users.push(user);
+      this.users = [user];
     } else {
       if (user.password && user.password !== password) {
         return { success: false, user: this.getCurrentUser(), error: 'Неверный пароль для этого аккаунта' };
@@ -410,6 +411,7 @@ class UserService {
         user.puzzlePoints = cloudPlayer.puzzlePoints;
         user.solvedPuzzleIds = cloudPlayer.solvedPuzzleIds;
       }
+      this.users = [user];
     }
 
     this.currentUserId = user.id;
@@ -451,23 +453,20 @@ class UserService {
   }
 
   public logoutUser(): UserProfile {
-    let guest = this.users.find(u => !u.isRegistered || u.authProvider === 'guest');
-    if (!guest) {
-      guest = {
-        id: `guest-${Date.now().toString(36)}`,
-        username: 'Гость',
-        isRegistered: false,
-        elo: 100,
-        puzzlePoints: 0,
-        solvedPuzzleIds: [],
-        friends: [],
-        stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
-        authProvider: 'guest',
-        createdAt: new Date().toISOString().slice(0, 10),
-        lastActiveAt: new Date().toISOString()
-      };
-      this.users.push(guest);
-    }
+    const guest: UserProfile = {
+      id: `guest-${Date.now().toString(36)}`,
+      username: 'Гость',
+      isRegistered: false,
+      elo: 100,
+      puzzlePoints: 0,
+      solvedPuzzleIds: [],
+      friends: [],
+      stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
+      authProvider: 'guest',
+      createdAt: new Date().toISOString().slice(0, 10),
+      lastActiveAt: new Date().toISOString()
+    };
+    this.users = [guest];
     this.currentUserId = guest.id;
     localStorage.setItem(STORAGE_CURRENT_USER_ID, guest.id);
     this.saveUsers();
@@ -597,7 +596,7 @@ class UserService {
     }
     const newOpponentElo = Math.max(50, opponentOldElo + delta);
 
-    let opp = this.users.find((u) => u.id === opponentId);
+    let opp = this.cloudPlayers.find((u) => u.id === opponentId || u.username.toLowerCase() === opponentUsername.toLowerCase());
     if (!opp) {
       opp = {
         id: opponentId,
@@ -617,7 +616,7 @@ class UserService {
         createdAt: new Date().toISOString().slice(0, 10),
         lastActiveAt: new Date().toISOString()
       };
-      this.users.push(opp);
+      this.cloudPlayers.push(opp);
     } else {
       opp.elo = newOpponentElo;
       if (!opp.stats) {

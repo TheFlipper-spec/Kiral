@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, RotateCcw, BookOpen, Swords, Users, Trophy, User, Cloud, Download, GraduationCap, Undo2 } from 'lucide-react';
+import { Upload, RotateCcw, BookOpen, Swords, Users, Trophy, User, Download, GraduationCap, Undo2 } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
 import type { ScoreDeltaData } from './ScoreDeltaNotification';
@@ -42,7 +42,6 @@ export const Header: React.FC<HeaderProps> = ({
   isAiThinking,
   currentUser,
   scoreDelta,
-  isCloudConnected = false,
   onOpenLeaderboard,
   onOpenAuth,
   canUndoMove = false,
@@ -322,15 +321,6 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           <div className="h-4 w-[1px] bg-[#262626] hidden sm:block shrink-0" />
-
-          {/* Cloud database status badge */}
-          <div
-            className="hidden xl:flex items-center gap-1 px-1.5 py-1 rounded bg-[#121212] border border-[#262626] text-[10px] font-mono text-[#888888] shrink-0"
-            title={isCloudConnected ? 'Облачная база данных подключена (реальные игроки онлайн)' : 'Локальный режим с облачной синхронизацией'}
-          >
-            <Cloud className={`w-3 h-3 ${isCloudConnected ? 'text-emerald-400' : 'text-[#666666]'}`} strokeWidth={1.5} />
-            <span className={`w-1.5 h-1.5 rounded-full ${isCloudConnected ? 'bg-emerald-400' : 'bg-amber-500/80'}`} />
-          </div>
 
           {/* Install PWA App button */}
           <button
