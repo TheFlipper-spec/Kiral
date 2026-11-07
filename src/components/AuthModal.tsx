@@ -26,8 +26,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showDevSettings, setShowDevSettings] = useState(false);
+  const [isOwnerMode, setIsOwnerMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return (
+      new URLSearchParams(window.location.search).has('admin') ||
+      new URLSearchParams(window.location.search).has('owner') ||
+      new URLSearchParams(window.location.search).has('dev')
+    );
+  });
+  const [, setOwnerClicks] = useState<number>(0);
   const [devTab, setDevTab] = useState<'cloud' | 'auth0'>('cloud');
   const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
+
+  const handleTitleClick = () => {
+    setOwnerClicks((prev) => {
+      const next = prev + 1;
+      if (next >= 5) {
+        setIsOwnerMode(true);
+        setShowDevSettings(true);
+        setSuccessMsg('Панель владельца сайта разблокирована');
+        setTimeout(() => setSuccessMsg(null), 3000);
+        return 0;
+      }
+      return next;
+    });
+  };
 
   const isLoggedIn = currentUser.isRegistered && currentUser.authProvider !== 'guest';
 
@@ -162,7 +185,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       <div className="bg-[#121212] border border-[#282828] rounded-lg max-w-md w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="p-4 border-b border-[#262626] bg-[#0E0E0E] flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div
+            onClick={handleTitleClick}
+            className="flex items-center gap-2 cursor-pointer select-none"
+            title={isOwnerMode ? 'Панель владельца активна' : undefined}
+          >
             <User className="w-4 h-4 text-[#1baca6]" strokeWidth={1.5} />
             <span className="font-mono text-sm font-bold tracking-tight text-[#EDEDED]">
               Личный кабинет игрока
@@ -395,19 +422,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          {/* Developer / Project Owner Settings (Collapsible, hidden for normal users) */}
-          <div className="pt-2 border-t border-[#262626]">
-            <button
-              type="button"
-              onClick={() => setShowDevSettings(!showDevSettings)}
-              className="w-full flex items-center justify-between text-[11px] font-mono text-[#666666] hover:text-[#AAAAAA] p-1.5 rounded hover:bg-[#161616] transition-colors"
-            >
-              <div className="flex items-center gap-1.5">
-                <Settings className="w-3.5 h-3.5 text-zinc-500" />
-                <span>Настройки владельца сайта (База данных & Auth0)</span>
-              </div>
-              <span>{showDevSettings ? '▲ Скрыть' : '▼ Настроить'}</span>
-            </button>
+          {/* Developer / Project Owner Settings (Hidden from ordinary players; unlocked by ?admin=1 or 5 clicks on title) */}
+          {isOwnerMode && (
+            <div className="pt-2 border-t border-[#262626] animate-in fade-in">
+              <button
+                type="button"
+                onClick={() => setShowDevSettings(!showDevSettings)}
+                className="w-full flex items-center justify-between text-[11px] font-mono text-[#888888] hover:text-[#EDEDED] p-1.5 rounded hover:bg-[#161616] transition-colors"
+              >
+                <div className="flex items-center gap-1.5">
+                  <Settings className="w-3.5 h-3.5 text-[#1baca6]" />
+                  <span className="font-semibold text-white">Панель владельца сайта (БД & Auth0)</span>
+                </div>
+                <span>{showDevSettings ? '▲ Скрыть' : '▼ Настроить'}</span>
+              </button>
 
             {showDevSettings && (
               <div className="mt-2.5 p-3 rounded border border-[#2a2a2a] bg-[#141414] space-y-3 text-xs font-mono animate-in fade-in duration-150">
@@ -581,6 +609,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             )}
           </div>
+        )}
         </div>
       </div>
     </div>
