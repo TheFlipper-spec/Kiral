@@ -1764,9 +1764,9 @@ export const App: React.FC = () => {
     }
   }, [gameOverMessage, fens.length, gameMode, activeRankedSession, currentUser.elo]);
 
-  // 10-Minute Chess Clock Countdown for Competitive Online PvP
+  // 10-Minute / Time-Control Chess Clock Countdown for Competitive Ranked Matches (Online PvP & Ranked AI)
   useEffect(() => {
-    if (gameMode !== 'ranked' || !activeRankedSession?.isOnlinePvP || Boolean(gameOverMessage)) {
+    if (gameMode !== 'ranked' || !activeRankedSession || Boolean(gameOverMessage)) {
       return;
     }
 
@@ -1788,10 +1788,12 @@ export const App: React.FC = () => {
           clearInterval(timer);
           const sess = activeRankedSessionRef.current;
           if (sess.myColor === 'w') {
-            multiplayerService.sendTimeout();
+            if (sess.isOnlinePvP) {
+              multiplayerService.sendTimeout();
+            }
             const matchRes = userService.recordCompetitiveMatchResult(sess.opponent.elo, 'loss');
             setCurrentUser({ ...userService.getCurrentUser() });
-            setGameOverMessage(`Ваше время (10:00) истекло! Поражение • ${matchRes.message}`);
+            setGameOverMessage(`Ваше время истекло! Поражение • ${matchRes.message}`);
             sound.playDefeat();
             sound.speak('Время вышло. Вы проиграли.');
             setScoreDelta({
@@ -1815,10 +1817,12 @@ export const App: React.FC = () => {
           clearInterval(timer);
           const sess = activeRankedSessionRef.current;
           if (sess.myColor === 'b') {
-            multiplayerService.sendTimeout();
+            if (sess.isOnlinePvP) {
+              multiplayerService.sendTimeout();
+            }
             const matchRes = userService.recordCompetitiveMatchResult(sess.opponent.elo, 'loss');
             setCurrentUser({ ...userService.getCurrentUser() });
-            setGameOverMessage(`Ваше время (10:00) истекло! Поражение • ${matchRes.message}`);
+            setGameOverMessage(`Ваше время истекло! Поражение • ${matchRes.message}`);
             sound.playDefeat();
             sound.speak('Время вышло. Вы проиграли.');
             setScoreDelta({
@@ -1874,16 +1878,17 @@ export const App: React.FC = () => {
           setReport(saved.report);
         }
 
+        const wRestored =
+          typeof saved.whiteTime === 'number' ? saved.whiteTime : INITIAL_RANKED_TIME_SEC;
+        const bRestored =
+          typeof saved.blackTime === 'number' ? saved.blackTime : INITIAL_RANKED_TIME_SEC;
+
         if (session.isOnlinePvP) {
           const elapsedSec = Math.max(
             0,
             Math.floor((Date.now() - (saved.lastTickTimestamp || Date.now())) / 1000)
           );
           const turn = chess.turn();
-          const wRestored =
-            typeof saved.whiteTime === 'number' ? saved.whiteTime : INITIAL_RANKED_TIME_SEC;
-          const bRestored =
-            typeof saved.blackTime === 'number' ? saved.blackTime : INITIAL_RANKED_TIME_SEC;
 
           setWhiteTime(turn === 'w' ? Math.max(1, wRestored - elapsedSec) : wRestored);
           setBlackTime(turn === 'b' ? Math.max(1, bRestored - elapsedSec) : bRestored);
@@ -1898,6 +1903,9 @@ export const App: React.FC = () => {
             handleOpponentDrawAccept
           );
         } else {
+          setWhiteTime(wRestored);
+          setBlackTime(bRestored);
+
           if (session.opponent.aiDifficultyId) {
             const cfg =
               AI_DIFFICULTIES.find((d) => d.id === session.opponent.aiDifficultyId) ||
@@ -2311,7 +2319,7 @@ export const App: React.FC = () => {
     return (latestFen.split(' ')[1] as 'w' | 'b') || 'w';
   })();
 
-  const isClockActive = gameMode === 'ranked' && Boolean(activeRankedSession?.isOnlinePvP);
+  const isClockActive = gameMode === 'ranked' && Boolean(activeRankedSession);
   const myColor: 'w' | 'b' = gameMode === 'ranked' && activeRankedSession
     ? activeRankedSession.myColor
     : gameMode === 'vs-ai'
