@@ -1,6 +1,39 @@
 class SoundService {
   private ctx: AudioContext | null = null;
   public enabled = true;
+  private preferredVoice: SpeechSynthesisVoice | null = null;
+
+  constructor() {
+    this.initVoices();
+  }
+
+  private initVoices() {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const findVoice = () => {
+      try {
+        const voices = window.speechSynthesis.getVoices();
+        if (!voices || voices.length === 0) return;
+        const ruVoices = voices.filter(v => v.lang.startsWith('ru'));
+        // Prioritize neural & high-clarity natural voices
+        const naturalVoice = ruVoices.find(v =>
+          v.name.includes('Natural') ||
+          v.name.includes('Online') ||
+          v.name.toLowerCase().includes('dmitry') ||
+          v.name.toLowerCase().includes('svetlana')
+        );
+        const googleVoice = ruVoices.find(v => v.name.includes('Google'));
+        const yandexVoice = ruVoices.find(v => v.name.toLowerCase().includes('yandex'));
+        this.preferredVoice = naturalVoice || googleVoice || yandexVoice || ruVoices[0] || null;
+      } catch {
+        // Fallback to default
+      }
+    };
+
+    findVoice();
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = findVoice;
+    }
+  }
 
   private getContext(): AudioContext | null {
     if (!this.enabled || typeof window === 'undefined') return null;
@@ -137,10 +170,13 @@ class SoundService {
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
+      if (this.preferredVoice) {
+        utterance.voice = this.preferredVoice;
+      }
       utterance.lang = 'ru-RU';
-      utterance.rate = 1.1;
+      utterance.rate = 1.05;
       utterance.pitch = 1.0;
-      utterance.volume = 0.9;
+      utterance.volume = 1.0;
       window.speechSynthesis.speak(utterance);
     } catch {
       // SpeechSynthesis may be blocked if user hasn't interacted

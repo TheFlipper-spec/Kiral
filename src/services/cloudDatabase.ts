@@ -202,6 +202,70 @@ class CloudDatabaseService {
   }
 
   /**
+   * Fetches an authoritative single player profile by username or ID
+   */
+  public async fetchPlayer(idOrUsername: string): Promise<UserProfile | null> {
+    if (!idOrUsername) return null;
+    if (this.supabase && this.config.provider === 'supabase') {
+      try {
+        const canonicalId = `user-${idOrUsername.toLowerCase().trim()}`;
+        const { data, error } = await this.supabase
+          .from('kiral_players')
+          .select('*')
+          .or(`id.eq.${canonicalId},id.eq.${idOrUsername},username.ilike.${idOrUsername}`)
+          .limit(1);
+
+        if (!error && data && data.length > 0) {
+          const row = data[0];
+          let parsedAvatar: string | undefined = undefined;
+          let parsedPassword: string | undefined = undefined;
+          let parsedActiveGame: any = null;
+
+          if (row.avatar_url && typeof row.avatar_url === 'string') {
+            if (row.avatar_url.trim().startsWith('{')) {
+              try {
+                const parsed = JSON.parse(row.avatar_url);
+                parsedAvatar = parsed.avatar || undefined;
+                parsedPassword = parsed.pwd || undefined;
+                parsedActiveGame = parsed.activeGame || null;
+              } catch {
+                parsedAvatar = row.avatar_url;
+              }
+            } else {
+              parsedAvatar = row.avatar_url;
+            }
+          }
+
+          return {
+            id: row.id,
+            username: row.username,
+            password: parsedPassword,
+            activeGame: parsedActiveGame,
+            isRegistered: true,
+            elo: Number(row.elo) || 100,
+            puzzlePoints: Number(row.puzzle_points) || 0,
+            solvedPuzzleIds: Array.isArray(row.solved_puzzles) ? row.solved_puzzles : [],
+            friends: [],
+            stats: {
+              wins: Number(row.wins) || 0,
+              losses: Number(row.losses) || 0,
+              draws: Number(row.draws) || 0,
+              totalGames: Number(row.total_games) || 0
+            },
+            authProvider: row.auth_provider || 'custom',
+            avatarUrl: parsedAvatar,
+            createdAt: row.created_at || new Date().toISOString().slice(0, 10),
+            lastActiveAt: row.last_active_at
+          };
+        }
+      } catch (err) {
+        console.warn('Supabase fetchPlayer failed:', err);
+      }
+    }
+    return null;
+  }
+
+  /**
    * Upserts the player's updated profile to the central cloud database
    */
   public async syncPlayer(user: UserProfile): Promise<boolean> {

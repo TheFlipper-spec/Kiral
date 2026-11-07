@@ -169,6 +169,7 @@ export interface ClassifyInput {
   secondLineEval?: number;
   secondLineUci?: string;
   previousMoveClassification?: MoveClassification;
+  openingName?: string | null;
 }
 
 export function classifySingleMove(input: ClassifyInput): {
@@ -291,7 +292,9 @@ export function classifySingleMove(input: ClassifyInput): {
   if (isOpeningBook(fenBefore, san, ply) && cpLoss <= 35 && winLoss <= 3.5) {
     return {
       classification: 'book',
-      reason: 'Теоретический дебютный ход из книги гроссмейстеров',
+      reason: input.openingName
+        ? `Теоретический ход в рамках дебюта «${input.openingName}» — активная борьба за центр и подготовка развития`
+        : 'Теоретический дебютный ход из книги гроссмейстеров',
       winBefore,
       winAfter,
       winLoss: 0,

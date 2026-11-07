@@ -124,7 +124,10 @@ class MultiplayerService {
     challenge: DirectChallengePayload,
     onMove: OnOpponentMove,
     onResign: OnOpponentResign,
-    onDraw: OnOpponentDraw
+    onDraw: OnOpponentDraw,
+    onTimeout?: (fromColor?: 'w' | 'b') => void,
+    onDrawOffer?: (fromUsername: string) => void,
+    onDrawAccept?: () => void
   ): Promise<RankedMatchSession> {
     const session: RankedMatchSession = {
       roomId: challenge.roomId,
@@ -139,7 +142,15 @@ class MultiplayerService {
     };
 
     this.currentSession = session;
-    await this.joinGameRoom(challenge.roomId, onMove, onResign, onDraw);
+    await this.joinGameRoom(
+      challenge.roomId,
+      onMove,
+      onResign,
+      onDraw,
+      onTimeout,
+      onDrawOffer,
+      onDrawAccept
+    );
 
     // Notify opponent that challenge was accepted
     if (this.gameChannel) {
@@ -336,7 +347,9 @@ class MultiplayerService {
     onMove: OnOpponentMove,
     onResign: OnOpponentResign,
     onDraw: OnOpponentDraw,
-    onTimeout?: () => void
+    onTimeout?: (fromColor?: 'w' | 'b') => void,
+    onDrawOffer?: (fromUsername: string) => void,
+    onDrawAccept?: () => void
   ) {
     this.leaveGameRoom();
 
@@ -355,6 +368,14 @@ class MultiplayerService {
         if (onTimeout) onTimeout();
         else onResign();
       })
+      .on('broadcast', { event: 'draw_offer' }, ({ payload }) => {
+        const fromName = (payload && (payload as any).fromUsername) || 'Соперник';
+        if (onDrawOffer) onDrawOffer(fromName);
+      })
+      .on('broadcast', { event: 'draw_accept' }, () => {
+        if (onDrawAccept) onDrawAccept();
+        else onDraw();
+      })
       .on('broadcast', { event: 'draw' }, () => {
         onDraw();
       });
@@ -371,6 +392,30 @@ class MultiplayerService {
       type: 'broadcast',
       event: 'move',
       payload: move
+    });
+  }
+
+  /**
+   * Sends draw offer to opponent
+   */
+  public async sendDrawOffer() {
+    if (!this.gameChannel) return;
+    await this.gameChannel.send({
+      type: 'broadcast',
+      event: 'draw_offer',
+      payload: { playerId: this.myPlayer?.id }
+    });
+  }
+
+  /**
+   * Accepts draw and notifies opponent
+   */
+  public async sendDrawAccept() {
+    if (!this.gameChannel) return;
+    await this.gameChannel.send({
+      type: 'broadcast',
+      event: 'draw',
+      payload: { playerId: this.myPlayer?.id }
     });
   }
 

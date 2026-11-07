@@ -46,6 +46,7 @@ const STORAGE_CURRENT_USER_ID = 'kiral_chess_current_user_id_v3';
 
 class UserService {
   private users: UserProfile[] = [];
+  private cloudPlayers: UserProfile[] = [];
   private currentUserId: string = '';
   private userListeners: Array<(user: UserProfile) => void> = [];
 
@@ -113,9 +114,15 @@ class UserService {
           dedupMap.set(u.id, u);
         }
       });
-      this.users = Array.from(dedupMap.values());
-
       const savedCurrentId = localStorage.getItem(STORAGE_CURRENT_USER_ID);
+
+      // Device account isolation: Keep ONLY accounts that were authenticated on THIS device
+      // (either have local password, or is the current active player, or is guest).
+      this.users = Array.from(dedupMap.values()).filter((u) => {
+        if (!u.isRegistered || u.authProvider === 'guest') return true;
+        return Boolean(u.password) || u.id === savedCurrentId;
+      });
+
       if (savedCurrentId && this.users.some(u => u.id === savedCurrentId)) {
         this.currentUserId = savedCurrentId;
       } else if (this.users.length > 0) {
@@ -156,13 +163,16 @@ class UserService {
 
   private async initCloudSync() {
     try {
+      const current = this.getCurrentUser();
+      if (current && current.isRegistered && current.authProvider !== 'guest') {
+        const selfFromCloud = await cloudDatabase.fetchPlayer(current.username);
+        if (selfFromCloud) {
+          this.mergePlayers([selfFromCloud]);
+        }
+      }
       const remotePlayers = await cloudDatabase.fetchGlobalPlayers();
       if (remotePlayers && remotePlayers.length > 0) {
         this.mergePlayers(remotePlayers);
-      }
-      const current = this.getCurrentUser();
-      if (current && current.isRegistered && current.authProvider !== 'guest') {
-        cloudDatabase.syncPlayer(current);
       }
     } catch (err) {
       console.warn('Initial cloud sync warning:', err);
@@ -171,6 +181,13 @@ class UserService {
 
   public async refreshFromCloud(): Promise<UserProfile[]> {
     try {
+      const current = this.getCurrentUser();
+      if (current && current.isRegistered && current.authProvider !== 'guest') {
+        const selfFromCloud = await cloudDatabase.fetchPlayer(current.username);
+        if (selfFromCloud) {
+          this.mergePlayers([selfFromCloud]);
+        }
+      }
       const remote = await cloudDatabase.fetchGlobalPlayers();
       if (remote && remote.length > 0) {
         this.mergePlayers(remote);
@@ -182,6 +199,9 @@ class UserService {
   }
 
   private mergePlayers(remotePlayers: UserProfile[]) {
+    // Keep global players for leaderboard, matchmaking and profile views
+    this.cloudPlayers = remotePlayers;
+
     const oldCurrent = this.getCurrentUser();
     const oldCurrentKey = oldCurrent?.username ? oldCurrent.username.toLowerCase() : '';
 
@@ -195,14 +215,9 @@ class UserService {
         (u) => u.id === rem.id || u.id === canonicalId || u.username.toLowerCase() === remKey
       );
 
-      if (existingIndex < 0) {
-        this.users.push({
-          ...rem,
-          id: canonicalId,
-          isRegistered: true,
-          friends: rem.friends || []
-        });
-      } else {
+      // Only sync if this profile actually exists on this device!
+      // Do not contaminate local storage with stranger profiles from other people's devices.
+      if (existingIndex >= 0) {
         const existing = this.users[existingIndex];
         const isCurrentUser = existing.id === this.currentUserId || existing.username.toLowerCase() === oldCurrentKey;
         const remGames = rem.stats?.totalGames || 0;
@@ -235,6 +250,7 @@ class UserService {
           ...existing,
           ...rem,
           id: canonicalId,
+          password: existing.password || rem.password,
           isRegistered: true,
           elo: useRemoteStats ? rem.elo : existing.elo,
           stats: useRemoteStats ? (rem.stats || existing.stats) : existing.stats,
@@ -302,7 +318,7 @@ class UserService {
   }
 
   public getUserById(userId: string): UserProfile | undefined {
-    return this.users.find(u => u.id === userId);
+    return this.users.find(u => u.id === userId) || this.cloudPlayers.find(u => u.id === userId);
   }
 
   public toggleFriend(targetUserId: string): boolean {
@@ -349,22 +365,35 @@ class UserService {
 
     const canonicalId = getDeterministicUserId(username);
     let user = this.users.find(u => u.id === canonicalId || u.username.toLowerCase() === username.toLowerCase());
+    const cloudPlayer = this.cloudPlayers.find(u => u.id === canonicalId || u.username.toLowerCase() === username.toLowerCase());
+
+    if (cloudPlayer && cloudPlayer.password && cloudPlayer.password !== password) {
+      return { success: false, user: this.getCurrentUser(), error: 'Неверный пароль для этого аккаунта' };
+    }
 
     if (!user) {
-      user = {
-        id: canonicalId,
-        username,
-        password,
-        isRegistered: true,
-        elo: 100,
-        puzzlePoints: 0,
-        solvedPuzzleIds: [],
-        friends: [],
-        stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
-        authProvider: 'custom',
-        createdAt: new Date().toISOString().slice(0, 10),
-        lastActiveAt: new Date().toISOString()
-      };
+      if (cloudPlayer) {
+        user = {
+          ...cloudPlayer,
+          id: canonicalId,
+          password
+        };
+      } else {
+        user = {
+          id: canonicalId,
+          username,
+          password,
+          isRegistered: true,
+          elo: 100,
+          puzzlePoints: 0,
+          solvedPuzzleIds: [],
+          friends: [],
+          stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
+          authProvider: 'custom',
+          createdAt: new Date().toISOString().slice(0, 10),
+          lastActiveAt: new Date().toISOString()
+        };
+      }
       this.users.push(user);
     } else {
       if (user.password && user.password !== password) {
@@ -375,6 +404,12 @@ class UserService {
       user.isRegistered = true;
       user.authProvider = 'custom';
       user.lastActiveAt = new Date().toISOString();
+      if (cloudPlayer) {
+        user.elo = cloudPlayer.elo;
+        user.stats = cloudPlayer.stats;
+        user.puzzlePoints = cloudPlayer.puzzlePoints;
+        user.solvedPuzzleIds = cloudPlayer.solvedPuzzleIds;
+      }
     }
 
     this.currentUserId = user.id;
@@ -660,14 +695,33 @@ class UserService {
     return { pointsAwarded, oldTotalPoints, isFirstTime, newTotalPoints: user.puzzlePoints };
   }
 
+  private getUnifiedPlayers(): UserProfile[] {
+    const map = new Map<string, UserProfile>();
+    this.cloudPlayers.forEach((p) => {
+      if (p.isRegistered && p.authProvider !== 'guest') {
+        map.set(p.username.toLowerCase(), p);
+      }
+    });
+    this.users.forEach((p) => {
+      if (p.isRegistered && p.authProvider !== 'guest') {
+        const key = p.username.toLowerCase();
+        const existing = map.get(key);
+        if (!existing || (p.stats?.totalGames || 0) >= (existing.stats?.totalGames || 0)) {
+          map.set(key, p);
+        }
+      }
+    });
+    return Array.from(map.values());
+  }
+
   public getEloLeaderboard(): UserProfile[] {
-    return this.users
+    return this.getUnifiedPlayers()
       .filter((u) => u.isRegistered && u.authProvider !== 'guest')
       .sort((a, b) => b.elo - a.elo);
   }
 
   public getPuzzlesLeaderboard(): UserProfile[] {
-    return this.users
+    return this.getUnifiedPlayers()
       .filter((u) => u.isRegistered && u.authProvider !== 'guest')
       .sort((a, b) => {
         if (b.puzzlePoints !== a.puzzlePoints) {

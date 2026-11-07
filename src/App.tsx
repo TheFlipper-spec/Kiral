@@ -24,11 +24,12 @@ import { MatchmakingModal } from './components/MatchmakingModal';
 import { UserProfileModal } from './components/UserProfileModal';
 import { multiplayerService } from './services/multiplayerService';
 import type { RankedMatchSession, MovePayload, DirectChallengePayload } from './services/multiplayerService';
-import { Swords, RotateCw } from 'lucide-react';
+import { Swords, RotateCw, Handshake } from 'lucide-react';
 import { userService } from './services/userService';
 import type { UserProfile, ActiveGameSyncData } from './services/userService';
 import { cloudDatabase } from './services/cloudDatabase';
 import { classifySingleMove, calculatePlayerAccuracy, quickEvaluateFen } from './engine/evalFormulas';
+import { detectOpeningNameFromMoves } from './engine/bookMoves';
 import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES } from './types/chess';
 import type { GameReport, MoveAnalysis, MoveClassification, EngineEvaluation } from './types/chess';
 
@@ -44,7 +45,9 @@ export const App: React.FC = () => {
   const [scoreDelta, setScoreDelta] = useState<ScoreDeltaData | null>(null);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(() => cloudDatabase.isConnected);
   const [remoteActiveGamePrompt, setRemoteActiveGamePrompt] = useState<ActiveGameSyncData | null>(null);
+  const [incomingDrawOffer, setIncomingDrawOffer] = useState<{ fromUser: string } | null>(null);
   const lastLocalActionTimeRef = useRef<number>(Date.now());
+  const aiRequestIdRef = useRef<number>(0);
 
   useEffect(() => {
     const updateCloud = () => setIsCloudConnected(cloudDatabase.isConnected);
@@ -397,6 +400,7 @@ export const App: React.FC = () => {
       };
       const quickAfter = quickEvaluateFen(fenAfter);
 
+      const quickDetectedOpening = detectOpeningNameFromMoves(fensRef.current);
       const quickClass = classifySingleMove({
         ply: plyIndex,
         turn,
@@ -410,7 +414,8 @@ export const App: React.FC = () => {
         evalAfter: quickAfter.cp,
         mateBefore: quickBefore.mate,
         mateAfter: quickAfter.mate,
-        bestMoveUci: quickBefore.bestMove
+        bestMoveUci: quickBefore.bestMove,
+        openingName: quickDetectedOpening
       });
 
       const preliminaryAnalysis: MoveAnalysis = {
@@ -476,6 +481,7 @@ export const App: React.FC = () => {
       const trueBestBeforeUci = evalBeforeObj.bestMove || '';
       const trueBestBeforeSan = trueBestBeforeUci ? uciToSan(fenBefore, trueBestBeforeUci) : moveSan;
 
+      const deepDetectedOpening = detectOpeningNameFromMoves(fensRef.current);
       const classResult = classifySingleMove({
         ply: plyIndex,
         turn,
@@ -491,7 +497,8 @@ export const App: React.FC = () => {
         mateAfter: evalAfterObj.mate,
         bestMoveUci: trueBestBeforeUci,
         secondLineEval: evalBeforeObj.secondBest?.cp,
-        secondLineUci: evalBeforeObj.secondBest?.bestMove
+        secondLineUci: evalBeforeObj.secondBest?.bestMove,
+        openingName: deepDetectedOpening
       });
 
       const deepAnalysis: MoveAnalysis = {
@@ -563,9 +570,11 @@ export const App: React.FC = () => {
         return;
       }
 
+      const reqId = ++aiRequestIdRef.current;
       setIsAiThinking(true);
       try {
         const aiMoveEval = await stockfish.getAiMove(fenToRespondTo, aiDepth);
+        if (aiRequestIdRef.current !== reqId) return;
         let chosenUci = aiMoveEval.bestMove;
 
         // Human-like blunder & casual move simulator for low ELO (< 300) bots
@@ -604,8 +613,8 @@ export const App: React.FC = () => {
           // 1.2 second pause so player sees their own move accent and hears speech feedback
           await new Promise((resolve) => setTimeout(resolve, 1200));
 
-          // Ensure game wasn't reset or undone while waiting
-          if (currentPlyRef.current !== currentPlyCount) {
+          // Ensure game wasn't reset, undone, or another move requested while waiting
+          if (aiRequestIdRef.current !== reqId || currentPlyRef.current !== currentPlyCount) {
             return;
           }
 
@@ -703,7 +712,7 @@ export const App: React.FC = () => {
   );
 
   // Player Move Handler
-  const handlePieceDrop = (sourceSquare: string, targetSquare: string): boolean => {
+  const handlePieceDrop = (sourceSquare: string, targetSquare: string, promotion: string = 'q'): boolean => {
     lastLocalActionTimeRef.current = Date.now();
     if (isAiThinkingRef.current) return false;
 
@@ -736,7 +745,7 @@ export const App: React.FC = () => {
         pMove = chess.move({
           from: sourceSquare,
           to: targetSquare,
-          promotion: 'q'
+          promotion: (promotion as any) || 'q'
         });
       } catch {
         return false;
@@ -861,7 +870,7 @@ export const App: React.FC = () => {
       moveResult = chess.move({
         from: sourceSquare,
         to: targetSquare,
-        promotion: 'q'
+        promotion: (promotion as any) || 'q'
       });
     } catch {
       return false;
@@ -1204,12 +1213,22 @@ export const App: React.FC = () => {
   };
 
   /**
-   * Undo last move for Review, VS-AI, and 1v1 PvP modes
+   * Undo last move for Review, VS-AI, 1v1 PvP, and Openings modes
    */
   const handleUndoMove = useCallback(() => {
     if (gameMode === 'ranked' || gameMode === 'puzzles') return;
+
+    if (gameMode === 'learn' && activeLearnTab === 'openings') {
+      if (openingStepIndex > 0) {
+        applyOpeningStep(currentOpening, openingStepIndex - 1);
+        sound.playMove();
+      }
+      return;
+    }
+
     if (currentPly <= 0 || fens.length <= 1) return;
 
+    aiRequestIdRef.current++;
     stockfish.clearQueue();
     setIsAiThinking(false);
     setGameOverMessage(null);
@@ -1240,6 +1259,8 @@ export const App: React.FC = () => {
     }
 
     const nextFens = fens.slice(0, targetPly + 1);
+    fensRef.current = nextFens;
+    currentPlyRef.current = targetPly;
     setFens(nextFens);
     setCurrentPly(targetPly);
 
@@ -1499,6 +1520,87 @@ export const App: React.FC = () => {
     }
   }, [gameOverMessage, gameMode, activeRankedSession]);
 
+  const handleOpponentDrawOffer = useCallback((fromUsername: string) => {
+    sound.speak(`Соперник ${fromUsername} предлагает ничью.`);
+    setIncomingDrawOffer({ fromUser: fromUsername });
+  }, []);
+
+  const handleOpponentDrawAccept = useCallback(() => {
+    if (activeRankedSessionRef.current) {
+      const opp = activeRankedSessionRef.current.opponent;
+      const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
+      if (activeRankedSessionRef.current.isOnlinePvP) {
+        userService.applyOpponentMatchResult(
+          opp.id,
+          opp.username,
+          opp.elo,
+          matchRes.oldElo,
+          'draw'
+        );
+      }
+      setCurrentUser(userService.getCurrentUser());
+      sound.playVictory();
+      sound.speak('Соперник принял ничью. Партия завершилась миром.');
+      setGameOverMessage(`Ничья по соглашению сторон • ${matchRes.message}`);
+    }
+  }, []);
+
+  const handleOfferDraw = useCallback(() => {
+    if (gameOverMessage || fens.length <= 4) return;
+
+    if (gameMode === 'vs-ai') {
+      const currentFenStr = fensRef.current[currentPlyRef.current] || fensRef.current[fensRef.current.length - 1];
+      const currentEval = positionEvalCacheRef.current.get(currentFenStr)?.cp ?? quickEvaluateFen(currentFenStr).cp;
+
+      // Stockfish accepts draw if position is balanced (|eval| <= 80) and at least 10 plies played
+      if (Math.abs(currentEval) <= 80 && fens.length >= 10) {
+        userService.recordCasualMatch('draw');
+        setCurrentUser(userService.getCurrentUser());
+        sound.playVictory();
+        sound.speak('ИИ согласен на ничью. Партия завершилась миром.');
+        setGameOverMessage('Ничья по соглашению сторон • 1/2 - 1/2');
+      } else {
+        sound.playBlunder();
+        sound.speak('ИИ отклонил предложение ничьей и продолжает борьбу!');
+        setScoreDelta({
+          id: `draw-declined-${Date.now()}`,
+          type: 'elo',
+          title: 'ИИ отклонил ничью',
+          delta: 0,
+          oldValue: currentUser.elo,
+          newValue: currentUser.elo,
+          unit: 'ELO',
+          isPositive: false,
+          isNeutral: true
+        });
+      }
+      return;
+    }
+
+    if (gameMode === 'ranked' && activeRankedSession?.isOnlinePvP) {
+      multiplayerService.sendDrawOffer();
+      sound.speak('Предложение ничьей отправлено сопернику');
+      setScoreDelta({
+        id: `draw-offer-${Date.now()}`,
+        type: 'elo',
+        title: 'Предложение ничьей',
+        delta: 0,
+        oldValue: currentUser.elo,
+        newValue: currentUser.elo,
+        unit: 'ELO',
+        isPositive: false,
+        isNeutral: true
+      });
+      return;
+    }
+
+    if (gameMode === 'pvp') {
+      sound.playVictory();
+      sound.speak('Ничья по соглашению игроков');
+      setGameOverMessage('Ничья по соглашению сторон • 1/2 - 1/2');
+    }
+  }, [gameOverMessage, fens.length, gameMode, activeRankedSession, currentUser.elo]);
+
   // 10-Minute Chess Clock Countdown for Competitive Online PvP
   useEffect(() => {
     if (gameMode !== 'ranked' || !activeRankedSession?.isOnlinePvP || Boolean(gameOverMessage)) {
@@ -1628,7 +1730,9 @@ export const App: React.FC = () => {
             handleOpponentOnlineMove,
             handleOpponentResign,
             () => {},
-            handleOpponentTimeout
+            handleOpponentTimeout,
+            handleOpponentDrawOffer,
+            handleOpponentDrawAccept
           );
         } else {
           if (session.opponent.aiDifficultyId) {
@@ -1832,7 +1936,9 @@ export const App: React.FC = () => {
         handleOpponentOnlineMove,
         handleOpponentResign,
         () => {},
-        handleOpponentTimeout
+        handleOpponentTimeout,
+        handleOpponentDrawOffer,
+        handleOpponentDrawAccept
       );
     } else {
       if (session.opponent.aiDifficultyId) {
@@ -1846,7 +1952,15 @@ export const App: React.FC = () => {
         }, 600);
       }
     }
-  }, [currentUser, handleOpponentOnlineMove, handleOpponentResign, handleOpponentTimeout, triggerAiMove]);
+  }, [
+    currentUser,
+    handleOpponentOnlineMove,
+    handleOpponentResign,
+    handleOpponentTimeout,
+    handleOpponentDrawOffer,
+    handleOpponentDrawAccept,
+    triggerAiMove
+  ]);
 
   const handleAcceptIncomingChallenge = async (chal: DirectChallengePayload) => {
     setIncomingChallenge(null);
@@ -1854,7 +1968,10 @@ export const App: React.FC = () => {
       chal,
       handleOpponentOnlineMove,
       handleOpponentResign,
-      () => {}
+      () => {},
+      handleOpponentTimeout,
+      handleOpponentDrawOffer,
+      handleOpponentDrawAccept
     );
     handleStartRankedSession(session);
   };
@@ -1879,7 +1996,9 @@ export const App: React.FC = () => {
         handleOpponentOnlineMove,
         handleOpponentResign,
         () => {},
-        handleOpponentTimeout
+        handleOpponentTimeout,
+        handleOpponentDrawOffer,
+        handleOpponentDrawAccept
       );
       handleStartRankedSession(session);
     } catch (err) {
@@ -1978,7 +2097,6 @@ export const App: React.FC = () => {
     currentPly > 0 && report?.moves ? report.moves[currentPly - 1] : undefined;
 
   const currentFen = previewFen || fens[currentPly] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-  const hideEngineHints = (gameMode === 'pvp' || gameMode === 'ranked') && !gameOverMessage;
 
   // Always-live evaluation for EvalBar ("полоса доминации") across all modes
   const cachedCurrentEval = positionEvalCacheRef.current.get(currentFen);
@@ -1997,9 +2115,18 @@ export const App: React.FC = () => {
     : fallbackQuickEval.mate;
 
   const canUndoMove =
-    (gameMode === 'review' || gameMode === 'vs-ai' || gameMode === 'pvp') &&
-    currentPly > 0 &&
-    !(gameMode === 'vs-ai' && playerColor === 'b' && currentPly <= 1);
+    ((gameMode === 'review' || gameMode === 'vs-ai' || gameMode === 'pvp') &&
+      currentPly > 0 &&
+      !(gameMode === 'vs-ai' && playerColor === 'b' && currentPly <= 1)) ||
+    (gameMode === 'learn' && activeLearnTab === 'openings' && openingStepIndex > 0);
+
+  const openingsArrow =
+    gameMode === 'learn' && activeLearnTab === 'openings' && currentOpening?.moves[openingStepIndex]
+      ? {
+          from: currentOpening.moves[openingStepIndex].from,
+          to: currentOpening.moves[openingStepIndex].to
+        }
+      : null;
 
   const currentTurnColor: 'w' | 'b' = (() => {
     const latestFen = fens[fens.length - 1] || currentFen;
@@ -2215,7 +2342,54 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      <main className="flex-1 grid grid-cols-1 grid-rows-[auto_1fr] landscape:grid-rows-1 landscape:grid-cols-[1fr_340px] md:landscape:grid-cols-[1fr_400px] lg:grid-rows-1 lg:grid-cols-[1fr_440px] xl:grid-cols-[1fr_480px] overflow-hidden">
+      {/* Floating incoming draw offer notification */}
+      {incomingDrawOffer && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 p-3 rounded-xl bg-[#141414] border border-[#1baca6] shadow-2xl flex items-center gap-3 backdrop-blur-md animate-in slide-in-from-top max-w-sm w-[92%] sm:w-full">
+          <Handshake className="w-4 h-4 text-[#1baca6] shrink-0" />
+          <div className="flex-1 truncate">
+            <span className="text-xs font-mono text-white block truncate">
+              <strong>{incomingDrawOffer.fromUser}</strong> предлагает ничью
+            </span>
+            <span className="text-[10px] font-mono text-[#888888]">
+              Согласиться на ничью в текущей партии?
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              multiplayerService.sendDrawAccept();
+              if (activeRankedSession) {
+                const opp = activeRankedSession.opponent;
+                const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
+                if (activeRankedSession.isOnlinePvP) {
+                  userService.applyOpponentMatchResult(
+                    opp.id,
+                    opp.username,
+                    opp.elo,
+                    matchRes.oldElo,
+                    'draw'
+                  );
+                }
+                setCurrentUser(userService.getCurrentUser());
+                sound.playVictory();
+                sound.speak('Вы приняли ничью.');
+                setGameOverMessage(`Ничья по соглашению сторон • ${matchRes.message}`);
+              }
+              setIncomingDrawOffer(null);
+            }}
+            className="px-2.5 py-1 rounded bg-[#1baca6] text-black font-mono font-bold text-xs hover:bg-[#20c2bc] transition-colors shrink-0"
+          >
+            Принять
+          </button>
+          <button
+            onClick={() => setIncomingDrawOffer(null)}
+            className="px-2 py-1 rounded bg-[#222222] text-[#888888] font-mono text-xs hover:text-white transition-colors shrink-0"
+          >
+            Отклонить
+          </button>
+        </div>
+      )}
+
+      <main className="flex-1 grid grid-cols-1 grid-rows-[auto_1fr] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[1fr_450px] xl:grid-cols-[1fr_490px] overflow-hidden">
         <section className="relative h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A] px-1 py-1 sm:p-2">
           <ChessboardArea
             fen={currentFen}
@@ -2243,7 +2417,8 @@ export const App: React.FC = () => {
             gameOverMessage={gameOverMessage}
             onRestartGame={() => handleReset()}
             moveAccent={moveAccent}
-            showEngineArrows={!hideEngineHints}
+            showEngineArrows={gameMode !== 'ranked' && gameMode !== 'pvp' && !gameOverMessage}
+            openingsArrow={openingsArrow}
             topPlayer={opponentBarInfo}
             bottomPlayer={playerBarInfo}
             isOpponentFriend={isOpponentFriend}
@@ -2251,6 +2426,8 @@ export const App: React.FC = () => {
             onOpenTopPlayerProfile={handleOpenOpponentProfile}
             canResign={(gameMode === 'ranked' || gameMode === 'vs-ai') && !gameOverMessage && fens.length > 1}
             onResignGame={handleResignCurrentGame}
+            canOfferDraw={(gameMode === 'vs-ai' || gameMode === 'ranked' || gameMode === 'pvp') && !gameOverMessage && fens.length > 4}
+            onOfferDraw={handleOfferDraw}
             canUndoMove={canUndoMove}
             onUndoMove={handleUndoMove}
           />

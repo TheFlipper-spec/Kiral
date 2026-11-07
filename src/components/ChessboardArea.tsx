@@ -22,7 +22,9 @@ import {
   User,
   Flag,
   Bot,
-  Undo2
+  Undo2,
+  Handshake,
+  X
 } from 'lucide-react';
 
 export interface MoveAccentInfo {
@@ -43,6 +45,64 @@ export interface BoardPlayerBarInfo {
   isTurn?: boolean;
 }
 
+export interface CapturedPiecesSummary {
+  whiteCaptures: Array<{ type: 'p' | 'n' | 'b' | 'r' | 'q'; count: number; symbol: string }>;
+  blackCaptures: Array<{ type: 'p' | 'n' | 'b' | 'r' | 'q'; count: number; symbol: string }>;
+  whiteAdvantage: number;
+  blackAdvantage: number;
+}
+
+export function getCapturedPieces(fen: string): CapturedPiecesSummary {
+  const boardPart = fen.split(' ')[0] || '';
+  const initial: Record<string, number> = {
+    P: 8, N: 2, B: 2, R: 2, Q: 1,
+    p: 8, n: 2, b: 2, r: 2, q: 1
+  };
+  const counts: Record<string, number> = {
+    P: 0, N: 0, B: 0, R: 0, Q: 0,
+    p: 0, n: 0, b: 0, r: 0, q: 0
+  };
+  for (const ch of boardPart) {
+    if (counts[ch] !== undefined) {
+      counts[ch]++;
+    }
+  }
+
+  const order: Array<'p' | 'n' | 'b' | 'r' | 'q'> = ['p', 'n', 'b', 'r', 'q'];
+  const symbols: Record<string, string> = {
+    p: '♟', n: '♞', b: '♝', r: '♜', q: '♛',
+    P: '♙', N: '♘', B: '♗', R: '♖', Q: '♕'
+  };
+
+  const whiteCaptures: Array<{ type: 'p' | 'n' | 'b' | 'r' | 'q'; count: number; symbol: string }> = [];
+  order.forEach((t) => {
+    const taken = Math.max(0, initial[t] - counts[t]);
+    if (taken > 0) {
+      whiteCaptures.push({ type: t, count: taken, symbol: symbols[t] });
+    }
+  });
+
+  const blackCaptures: Array<{ type: 'p' | 'n' | 'b' | 'r' | 'q'; count: number; symbol: string }> = [];
+  (['P', 'N', 'B', 'R', 'Q'] as const).forEach((t) => {
+    const lower = t.toLowerCase() as 'p' | 'n' | 'b' | 'r' | 'q';
+    const taken = Math.max(0, initial[t] - counts[t]);
+    if (taken > 0) {
+      blackCaptures.push({ type: lower, count: taken, symbol: symbols[t] });
+    }
+  });
+
+  const whiteMaterial = counts.P * 1 + counts.N * 3 + counts.B * 3 + counts.R * 5 + counts.Q * 9;
+  const blackMaterial = counts.p * 1 + counts.n * 3 + counts.b * 3 + counts.r * 5 + counts.q * 9;
+  const diff = whiteMaterial - blackMaterial;
+
+  return {
+    whiteCaptures,
+    blackCaptures,
+    whiteAdvantage: Math.max(0, diff),
+    blackAdvantage: Math.max(0, -diff)
+  };
+}
+
 interface ChessboardAreaProps {
   fen: string;
   isFlipped: boolean;
@@ -61,12 +121,13 @@ interface ChessboardAreaProps {
   evalCp: number;
   mate: number | null;
   bestMoveUci?: string;
-  onPieceDrop?: (sourceSquare: string, targetSquare: string) => boolean;
+  onPieceDrop?: (sourceSquare: string, targetSquare: string, promotion?: string) => boolean;
   isAiThinking?: boolean;
   gameOverMessage?: string | null;
   onRestartGame?: () => void;
   moveAccent?: MoveAccentInfo | null;
   showEngineArrows?: boolean;
+  openingsArrow?: { from: string; to: string } | null;
   topPlayer?: BoardPlayerBarInfo;
   bottomPlayer?: BoardPlayerBarInfo;
   isOpponentFriend?: boolean;
@@ -74,6 +135,8 @@ interface ChessboardAreaProps {
   onOpenTopPlayerProfile?: () => void;
   canResign?: boolean;
   onResignGame?: () => void;
+  canOfferDraw?: boolean;
+  onOfferDraw?: () => void;
   canUndoMove?: boolean;
   onUndoMove?: () => void;
 }
@@ -102,6 +165,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   onRestartGame,
   moveAccent = null,
   showEngineArrows = true,
+  openingsArrow = null,
   topPlayer,
   bottomPlayer,
   isOpponentFriend = false,
@@ -109,12 +173,34 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   onOpenTopPlayerProfile,
   canResign = false,
   onResignGame,
+  canOfferDraw = false,
+  onOfferDraw,
   canUndoMove = false,
   onUndoMove
 }) => {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [isDismissedGameOver, setIsDismissedGameOver] = useState<boolean>(false);
+  const [pendingPromotion, setPendingPromotion] = useState<{
+    sourceSquare: string;
+    targetSquare: string;
+    color: 'w' | 'b';
+  } | null>(null);
+
+  const capturedSummary = useMemo(() => getCapturedPieces(fen), [fen]);
+
+  const isPawnPromotion = (source: string, target: string): boolean => {
+    try {
+      const chess = new Chess(fen);
+      const piece = chess.get(source as Parameters<typeof chess.get>[0]);
+      if (!piece || piece.type !== 'p') return false;
+      if (piece.color === 'w' && source[1] === '7' && target[1] === '8') return true;
+      if (piece.color === 'b' && source[1] === '2' && target[1] === '1') return true;
+      return false;
+    } catch {
+      return false;
+    }
+  };
 
   // Reset dismissal when game over message changes
   useEffect(() => {
@@ -157,9 +243,20 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
 
       // If a piece is already selected
       if (selectedSquare) {
-        // If clicking a legal target destination -> execute move
+        // If clicking a legal target destination
         const isLegal = legalMoves.some((m) => m.to === square);
         if (isLegal) {
+          if (isPawnPromotion(selectedSquare, square)) {
+            const piece = chess.get(selectedSquare as Parameters<typeof chess.get>[0]);
+            setPendingPromotion({
+              sourceSquare: selectedSquare,
+              targetSquare: square,
+              color: piece?.color || 'w'
+            });
+            setSelectedSquare(null);
+            return;
+          }
+
           const success = onPieceDrop(selectedSquare, square);
           if (success) {
             setSelectedSquare(null);
@@ -191,7 +288,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     }
   };
 
-  // Best engine move arrow (hidden in 1v1 PvP mode)
+  // Best engine move arrow (hidden in 1v1 PvP & Ranked modes)
   const customArrows: Array<{ startSquare: string; endSquare: string; color: string }> = [];
   if (showEngineArrows && bestMoveUci && bestMoveUci.length >= 4) {
     const from = bestMoveUci.substring(0, 2);
@@ -203,6 +300,15 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
         color: 'rgba(150, 188, 75, 0.75)'
       });
     }
+  }
+
+  // Openings School arrow for guided learning
+  if (openingsArrow && openingsArrow.from && openingsArrow.to) {
+    customArrows.push({
+      startSquare: openingsArrow.from,
+      endSquare: openingsArrow.to,
+      color: 'rgba(27, 172, 166, 0.85)'
+    });
   }
 
   // Target square classification badge position
@@ -355,7 +461,13 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   };
 
   const boardWidthClass =
-    "w-full max-w-[min(96vw,calc(52vh-20px))] sm:max-w-[min(96vw,calc(100vh-175px))] lg:max-w-[min(calc(100vw-460px),calc(100vh-165px))] xl:max-w-[min(calc(100vw-500px),calc(100vh-160px))] landscape:max-lg:max-w-[min(96vw,calc(100vh-115px))]";
+    "w-full max-w-[min(96vw,calc(56vh-16px))] sm:max-w-[min(96vw,calc(100vh-140px))] lg:max-w-[min(calc(100vw-440px),calc(100vh-130px))] xl:max-w-[min(calc(100vw-480px),calc(100vh-120px))] 2xl:max-w-[min(calc(100vw-520px),calc(100vh-110px))] landscape:max-lg:max-w-[min(96vw,calc(100vh-100px))]";
+
+  const topCaptured = topPlayer ? (topPlayer.color === 'w' ? capturedSummary.whiteCaptures : capturedSummary.blackCaptures) : [];
+  const topAdvantage = topPlayer ? (topPlayer.color === 'w' ? capturedSummary.whiteAdvantage : capturedSummary.blackAdvantage) : 0;
+
+  const bottomCaptured = bottomPlayer ? (bottomPlayer.color === 'w' ? capturedSummary.whiteCaptures : capturedSummary.blackCaptures) : [];
+  const bottomAdvantage = bottomPlayer ? (bottomPlayer.color === 'w' ? capturedSummary.whiteAdvantage : capturedSummary.blackAdvantage) : 0;
 
   return (
     <div className="flex flex-col items-center justify-center px-1 sm:px-2 py-1 select-none h-full w-full overflow-hidden">
@@ -375,13 +487,27 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             ) : (
               <User className="w-3.5 h-3.5 text-[#888888] shrink-0" />
             )}
-            <span className="font-semibold text-[#EDEDED] truncate max-w-[110px] sm:max-w-[160px]">
+            <span className="font-semibold text-[#EDEDED] truncate max-w-[100px] sm:max-w-[150px]">
               {topPlayer.name}
             </span>
             {typeof topPlayer.elo === 'number' && (
               <span className="px-1.5 py-0.2 rounded bg-[#1C1C1C] border border-[#303030] text-[#1baca6] text-[10px] font-bold shrink-0">
                 {topPlayer.elo}
               </span>
+            )}
+            {/* Captured Pieces by Top Player */}
+            {topCaptured.length > 0 && (
+              <div className="hidden xs:flex items-center gap-0.5 text-zinc-400 select-none ml-1">
+                {topCaptured.map((c) => (
+                  <span key={c.type} className="inline-flex items-center text-[13px] leading-none opacity-85">
+                    {c.symbol}
+                    {c.count > 1 && <span className="text-[9px] font-mono text-zinc-500 font-semibold">{c.count}</span>}
+                  </span>
+                ))}
+                {topAdvantage > 0 && (
+                  <span className="ml-1 text-[10px] font-mono font-bold text-emerald-400">+{topAdvantage}</span>
+                )}
+              </div>
             )}
           </div>
 
@@ -453,6 +579,24 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               onPieceDrop: ({ sourceSquare, targetSquare }) => {
                 if (!targetSquare) return false;
                 setSelectedSquare(null);
+                if (isPawnPromotion(sourceSquare, targetSquare)) {
+                  try {
+                    const chess = new Chess(fen);
+                    const moves = chess.moves({ square: sourceSquare as any, verbose: true });
+                    const isLegal = moves.some((m) => m.to === targetSquare);
+                    if (isLegal) {
+                      const piece = chess.get(sourceSquare as any);
+                      setPendingPromotion({
+                        sourceSquare,
+                        targetSquare,
+                        color: piece?.color || 'w'
+                      });
+                      return false;
+                    }
+                  } catch {
+                    return false;
+                  }
+                }
                 return onPieceDrop ? onPieceDrop(sourceSquare, targetSquare) : false;
               },
               boardStyle: {
@@ -466,6 +610,54 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               animationDurationInMs: 150
             }}
           />
+
+          {/* Interactive Pawn Promotion Selector Modal */}
+          {pendingPromotion && (
+            <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-[3px] flex items-center justify-center p-3 animate-in fade-in duration-200">
+              <div className="bg-[#141414] border border-[#333333] rounded-xl p-3.5 shadow-2xl flex flex-col items-center max-w-[280px] w-full">
+                <div className="flex items-center justify-between w-full mb-2.5">
+                  <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-[#CCCCCC]">
+                    Превращение пешки
+                  </span>
+                  <button
+                    onClick={() => setPendingPromotion(null)}
+                    className="text-zinc-500 hover:text-zinc-200 transition-colors p-0.5"
+                    title="Отмена"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-4 gap-2 w-full">
+                  {[
+                    { type: 'q', name: 'Ферзь', symbol: pendingPromotion.color === 'w' ? '♕' : '♛' },
+                    { type: 'r', name: 'Ладья', symbol: pendingPromotion.color === 'w' ? '♖' : '♜' },
+                    { type: 'b', name: 'Слон', symbol: pendingPromotion.color === 'w' ? '♗' : '♝' },
+                    { type: 'n', name: 'Конь', symbol: pendingPromotion.color === 'w' ? '♘' : '♞' }
+                  ].map((p) => (
+                    <button
+                      key={p.type}
+                      onClick={() => {
+                        const { sourceSquare, targetSquare } = pendingPromotion;
+                        setPendingPromotion(null);
+                        if (onPieceDrop) {
+                          onPieceDrop(sourceSquare, targetSquare, p.type);
+                        }
+                      }}
+                      className="flex flex-col items-center justify-center p-2 rounded-lg bg-[#1F1F1F] hover:bg-[#2A2A2A] border border-[#333333] hover:border-[#1baca6] transition-all group cursor-pointer"
+                      title={p.name}
+                    >
+                      <span className="text-3xl leading-none group-hover:scale-110 transition-transform text-white">
+                        {p.symbol}
+                      </span>
+                      <span className="text-[10px] font-mono mt-1 text-zinc-400 group-hover:text-white">
+                        {p.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Legal move indicators overlay (dots & capture rings) */}
           {legalMoves.map((m) => {
@@ -633,13 +825,27 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               }`}
             />
             <User className="w-3.5 h-3.5 text-[#1baca6] shrink-0" />
-            <span className="font-semibold text-[#EDEDED] truncate max-w-[110px] sm:max-w-[160px]">
+            <span className="font-semibold text-[#EDEDED] truncate max-w-[100px] sm:max-w-[150px]">
               {bottomPlayer.name}
             </span>
             {typeof bottomPlayer.elo === 'number' && (
               <span className="px-1.5 py-0.2 rounded bg-[#1baca6]/15 border border-[#1baca6]/30 text-[#1baca6] text-[10px] font-bold shrink-0">
                 {bottomPlayer.elo}
               </span>
+            )}
+            {/* Captured Pieces by Bottom Player */}
+            {bottomCaptured.length > 0 && (
+              <div className="hidden xs:flex items-center gap-0.5 text-zinc-400 select-none ml-1">
+                {bottomCaptured.map((c) => (
+                  <span key={c.type} className="inline-flex items-center text-[13px] leading-none opacity-85">
+                    {c.symbol}
+                    {c.count > 1 && <span className="text-[9px] font-mono text-zinc-500 font-semibold">{c.count}</span>}
+                  </span>
+                ))}
+                {bottomAdvantage > 0 && (
+                  <span className="ml-1 text-[10px] font-mono font-bold text-emerald-400">+{bottomAdvantage}</span>
+                )}
+              </div>
             )}
           </div>
 
@@ -651,7 +857,17 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                 title="Отменить последний ход (Ctrl+Z)"
               >
                 <Undo2 className="w-3 h-3" />
-                <span>Отменить ход</span>
+                <span className="hidden sm:inline">Отменить ход</span>
+              </button>
+            )}
+            {canOfferDraw && onOfferDraw && (
+              <button
+                onClick={onOfferDraw}
+                className="px-1.5 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#3a3a3a] text-[#CCCCCC] hover:text-white text-[10px] flex items-center gap-1 transition-colors"
+                title="Предложить ничью сопернику"
+              >
+                <Handshake className="w-3 h-3 text-[#1baca6]" />
+                <span className="hidden sm:inline">Ничья</span>
               </button>
             )}
             {canResign && onResignGame && (

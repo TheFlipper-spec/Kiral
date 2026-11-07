@@ -27,7 +27,7 @@ export const OpeningsPanel: React.FC<OpeningsPanelProps> = ({
   onStepChange,
   onResetOpening
 }) => {
-  const [selectedCategory, setSelectedCategory] = useState<'all' | 'open' | 'semi-open' | 'gambit'>('all');
+  const [selectedCategory, setSelectedCategory] = useState<'all' | 'open' | 'semi-open' | 'closed' | 'gambit'>('all');
 
   const filteredOpenings = CHESS_OPENINGS.filter((o) => {
     if (selectedCategory === 'all') return true;
@@ -105,6 +105,16 @@ export const OpeningsPanel: React.FC<OpeningsPanelProps> = ({
             }`}
           >
             Полуоткрытые
+          </button>
+          <button
+            onClick={() => setSelectedCategory('closed')}
+            className={`px-2 py-0.5 rounded transition-colors whitespace-nowrap ${
+              selectedCategory === 'closed'
+                ? 'bg-[#1baca6] text-black font-semibold'
+                : 'bg-[#181818] text-[#888888] hover:text-[#CCCCCC]'
+            }`}
+          >
+            Закрытые
           </button>
           <button
             onClick={() => setSelectedCategory('gambit')}
