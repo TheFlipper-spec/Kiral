@@ -29,7 +29,8 @@ import {
   Target,
   Lightbulb,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  HelpCircle
 } from 'lucide-react';
 
 export interface MoveAccentInfo {
@@ -151,9 +152,11 @@ interface ChessboardAreaProps {
     total: number;
     item: MistakeReviewItem;
     success: boolean | null;
+    pieceHintRevealed: boolean;
     solutionRevealed: boolean;
   } | null;
   onNextMistake?: () => void;
+  onRevealMistakePieceHint?: () => void;
   onRevealMistakeSolution?: () => void;
   onExitMistakeReplay?: () => void;
   timeControlBadge?: string;
@@ -199,6 +202,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   onStartMistakeReplay,
   activeMistake = null,
   onNextMistake,
+  onRevealMistakePieceHint,
   onRevealMistakeSolution,
   onExitMistakeReplay,
   timeControlBadge
@@ -457,6 +461,23 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     };
   }
 
+  // Mistake Replay Visual Highlights:
+  // 1. Red highlight on the blunder destination square so user clearly sees where they made mistake
+  if (activeMistake && activeMistake.item.playedUci && activeMistake.item.playedUci.length >= 4) {
+    const blunderTo = activeMistake.item.playedUci.substring(2, 4);
+    customSquareStyles[blunderTo] = {
+      backgroundColor: 'rgba(239, 68, 68, 0.22)',
+      boxShadow: 'inset 0 0 14px rgba(239, 68, 68, 0.55)'
+    };
+  }
+  // 2. Cyan highlight on piece to move when Hint 1 is revealed (does NOT show destination)
+  if (activeMistake?.pieceHintRevealed && activeMistake.item.pieceSquare) {
+    customSquareStyles[activeMistake.item.pieceSquare] = {
+      backgroundColor: 'rgba(27, 172, 166, 0.35)',
+      boxShadow: 'inset 0 0 16px rgba(27, 172, 166, 0.9), 0 0 8px rgba(27, 172, 166, 0.6)'
+    };
+  }
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -503,11 +524,11 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   const bottomAdvantage = bottomPlayer ? (bottomPlayer.color === 'w' ? capturedSummary.whiteAdvantage : capturedSummary.blackAdvantage) : 0;
 
   return (
-    <div className="flex flex-col items-center justify-center px-1 sm:px-2 py-1 select-none h-full w-full overflow-hidden">
+    <div className="flex flex-col items-center justify-between sm:justify-center px-1 sm:px-2 py-0.5 sm:py-1 select-none h-full w-full overflow-hidden">
       {/* Top Player / Opponent Bar */}
       {topPlayer && (
-        <div className={`${boardWidthClass} mb-1 sm:mb-1.5 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0`}>
-          <div className="flex items-center gap-2 truncate">
+        <div className={`${boardWidthClass} mb-0.5 sm:mb-1 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0`}>
+          <div className="flex items-center gap-1.5 sm:gap-2 truncate">
             <span
               className={`w-3 h-3 rounded-sm border shrink-0 ${
                 topPlayer.color === 'w'
@@ -520,7 +541,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             ) : (
               <User className="w-3.5 h-3.5 text-[#888888] shrink-0" />
             )}
-            <span className="font-semibold text-[#EDEDED] truncate max-w-[100px] sm:max-w-[150px]">
+            <span className="font-semibold text-[#EDEDED] truncate max-w-[90px] sm:max-w-[150px]">
               {topPlayer.name}
             </span>
             {typeof topPlayer.elo === 'number' && (
@@ -530,15 +551,26 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             )}
             {/* Captured Pieces by Top Player */}
             {topCaptured.length > 0 && (
-              <div className="hidden xs:flex items-center gap-0.5 text-zinc-400 select-none ml-1">
+              <div className="flex items-center gap-1 select-none ml-1.5 shrink-0">
                 {topCaptured.map((c) => (
-                  <span key={c.type} className="inline-flex items-center text-[13px] leading-none opacity-85">
-                    {c.symbol}
-                    {c.count > 1 && <span className="text-[9px] font-mono text-zinc-500 font-semibold">{c.count}</span>}
+                  <span
+                    key={c.type}
+                    className={`inline-flex items-center text-[13px] sm:text-[14px] leading-none ${
+                      topPlayer.color === 'w' ? 'text-zinc-400' : 'text-zinc-100'
+                    }`}
+                  >
+                    <span>{c.symbol}</span>
+                    {c.count > 1 && (
+                      <span className="text-[9px] font-mono text-zinc-500 font-bold ml-0.5">
+                        {c.count}
+                      </span>
+                    )}
                   </span>
                 ))}
                 {topAdvantage > 0 && (
-                  <span className="ml-1 text-[10px] font-mono font-bold text-emerald-400">+{topAdvantage}</span>
+                  <span className="ml-1 text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950/40 px-1 py-0.2 rounded border border-emerald-800/40">
+                    +{topAdvantage}
+                  </span>
                 )}
               </div>
             )}
@@ -843,6 +875,24 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                   {activeMistake.item.reason}
                 </div>
 
+                {/* Progressive Coach Hint Stage 1: Tactical idea and piece to move */}
+                {activeMistake.pieceHintRevealed && !activeMistake.solutionRevealed && (
+                  <div className="p-2 rounded bg-[#1baca6]/15 border border-[#1baca6]/40 text-[11px] font-mono text-[#1baca6] flex items-start gap-1.5 animate-in fade-in">
+                    <Lightbulb className="w-3.5 h-3.5 text-[#1baca6] shrink-0 mt-0.5" />
+                    <span>{activeMistake.item.tacticalHint}</span>
+                  </div>
+                )}
+
+                {/* Progressive Coach Hint Stage 2: Target move revealed */}
+                {activeMistake.solutionRevealed && activeMistake.item.bestMoveSan && (
+                  <div className="p-2 rounded bg-[#96bc4b]/15 border border-[#96bc4b]/40 text-[11px] font-mono text-[#96bc4b] flex items-center justify-between animate-in fade-in">
+                    <span>
+                      Решение: <strong>{activeMistake.item.bestMoveSan}</strong>{' '}
+                      ({activeMistake.item.pieceSquare} ➔ {activeMistake.item.targetSquare})
+                    </span>
+                  </div>
+                )}
+
                 {activeMistake.success === true && (
                   <div className="p-2 rounded bg-emerald-950/80 border border-emerald-600/60 flex items-center justify-between text-xs font-mono text-emerald-300 animate-in fade-in">
                     <div className="flex items-center gap-1.5">
@@ -868,19 +918,30 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                 )}
 
                 <div className="flex items-center justify-between pt-1 border-t border-zinc-800 text-[11px] font-mono">
-                  <span className="text-[#888888]">Сделайте лучший ход на доске</span>
-                  {onRevealMistakeSolution && !activeMistake.solutionRevealed && (
+                  <span className="text-[#888888]">Сделайте лучший ход</span>
+                  {!activeMistake.pieceHintRevealed && !activeMistake.solutionRevealed && onRevealMistakePieceHint && (
                     <button
-                      onClick={onRevealMistakeSolution}
-                      className="text-[#1baca6] hover:underline flex items-center gap-1 text-[10px] cursor-pointer"
+                      onClick={onRevealMistakePieceHint}
+                      className="text-[#1baca6] hover:text-[#25d3cc] hover:underline flex items-center gap-1 text-[11px] cursor-pointer"
+                      title="Подсветить фигуру, которой нужно сделать ход"
                     >
-                      <Lightbulb className="w-3 h-3" />
-                      <span>Подсказка</span>
+                      <Lightbulb className="w-3.5 h-3.5" />
+                      <span>Подсказка 1 (Фигура)</span>
                     </button>
                   )}
-                  {activeMistake.solutionRevealed && activeMistake.item.bestMoveSan && (
-                    <span className="text-[#96bc4b] font-bold">
-                      Лучший ход: {activeMistake.item.bestMoveSan}
+                  {activeMistake.pieceHintRevealed && !activeMistake.solutionRevealed && onRevealMistakeSolution && (
+                    <button
+                      onClick={onRevealMistakeSolution}
+                      className="text-[#f0c15c] hover:text-[#ffd875] hover:underline flex items-center gap-1 text-[11px] cursor-pointer"
+                      title="Показать правильный ход стрелкой"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      <span>Показать ход</span>
+                    </button>
+                  )}
+                  {activeMistake.solutionRevealed && (
+                    <span className="text-[#96bc4b] font-semibold text-[10px]">
+                      Ход показан стрелкой
                     </span>
                   )}
                 </div>
@@ -973,8 +1034,8 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
 
       {/* Bottom Player Bar */}
       {bottomPlayer && (
-        <div className={`${boardWidthClass} mt-1 sm:mt-1.5 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0`}>
-          <div className="flex items-center gap-2 truncate">
+        <div className={`${boardWidthClass} mt-0.5 sm:mt-1 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0`}>
+          <div className="flex items-center gap-1.5 sm:gap-2 truncate">
             <span
               className={`w-3 h-3 rounded-sm border shrink-0 ${
                 bottomPlayer.color === 'w'
@@ -983,7 +1044,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               }`}
             />
             <User className="w-3.5 h-3.5 text-[#1baca6] shrink-0" />
-            <span className="font-semibold text-[#EDEDED] truncate max-w-[100px] sm:max-w-[150px]">
+            <span className="font-semibold text-[#EDEDED] truncate max-w-[90px] sm:max-w-[150px]">
               {bottomPlayer.name}
             </span>
             {typeof bottomPlayer.elo === 'number' && (
@@ -993,15 +1054,26 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             )}
             {/* Captured Pieces by Bottom Player */}
             {bottomCaptured.length > 0 && (
-              <div className="hidden xs:flex items-center gap-0.5 text-zinc-400 select-none ml-1">
+              <div className="flex items-center gap-1 select-none ml-1.5 shrink-0">
                 {bottomCaptured.map((c) => (
-                  <span key={c.type} className="inline-flex items-center text-[13px] leading-none opacity-85">
-                    {c.symbol}
-                    {c.count > 1 && <span className="text-[9px] font-mono text-zinc-500 font-semibold">{c.count}</span>}
+                  <span
+                    key={c.type}
+                    className={`inline-flex items-center text-[13px] sm:text-[14px] leading-none ${
+                      bottomPlayer.color === 'w' ? 'text-zinc-400' : 'text-zinc-100'
+                    }`}
+                  >
+                    <span>{c.symbol}</span>
+                    {c.count > 1 && (
+                      <span className="text-[9px] font-mono text-zinc-500 font-bold ml-0.5">
+                        {c.count}
+                      </span>
+                    )}
                   </span>
                 ))}
                 {bottomAdvantage > 0 && (
-                  <span className="ml-1 text-[10px] font-mono font-bold text-emerald-400">+{bottomAdvantage}</span>
+                  <span className="ml-1 text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950/40 px-1 py-0.2 rounded border border-emerald-800/40">
+                    +{bottomAdvantage}
+                  </span>
                 )}
               </div>
             )}
@@ -1063,7 +1135,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       )}
 
       {/* Navigation & Controls Bar */}
-      <div className={`${boardWidthClass} mt-1 sm:mt-1.5 flex items-center justify-between px-2 py-0.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0`}>
+      <div className={`${boardWidthClass} mt-0.5 sm:mt-1 flex items-center justify-between px-2 py-0.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0`}>
         {/* Left: Move Counter or AI Thinking Status */}
         <div className="text-xs font-mono text-[#888888] flex items-center gap-1.5 min-w-[50px] sm:min-w-[80px]">
           {isAiThinking ? (

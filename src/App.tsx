@@ -50,6 +50,7 @@ export const App: React.FC = () => {
   const [isMistakeReplayActive, setIsMistakeReplayActive] = useState<boolean>(false);
   const [mistakeIndex, setMistakeIndex] = useState<number>(0);
   const [mistakeSuccess, setMistakeSuccess] = useState<boolean | null>(null);
+  const [mistakePieceHintRevealed, setMistakePieceHintRevealed] = useState<boolean>(false);
   const [mistakeSolutionRevealed, setMistakeSolutionRevealed] = useState<boolean>(false);
   const lastLocalActionTimeRef = useRef<number>(Date.now());
   const aiRequestIdRef = useRef<number>(0);
@@ -329,15 +330,24 @@ export const App: React.FC = () => {
       total: playerMistakes.length,
       item: playerMistakes[mistakeIndex],
       success: mistakeSuccess,
+      pieceHintRevealed: mistakePieceHintRevealed,
       solutionRevealed: mistakeSolutionRevealed
     };
-  }, [isMistakeReplayActive, playerMistakes, mistakeIndex, mistakeSuccess, mistakeSolutionRevealed]);
+  }, [
+    isMistakeReplayActive,
+    playerMistakes,
+    mistakeIndex,
+    mistakeSuccess,
+    mistakePieceHintRevealed,
+    mistakeSolutionRevealed
+  ]);
 
   const handleStartMistakeReplay = useCallback(() => {
     if (playerMistakes.length === 0) return;
     setIsMistakeReplayActive(true);
     setMistakeIndex(0);
     setMistakeSuccess(null);
+    setMistakePieceHintRevealed(false);
     setMistakeSolutionRevealed(false);
     setPreviewFen(playerMistakes[0].fenBefore);
     setIsPreviewingLine(true);
@@ -348,6 +358,7 @@ export const App: React.FC = () => {
       const nextIdx = mistakeIndex + 1;
       setMistakeIndex(nextIdx);
       setMistakeSuccess(null);
+      setMistakePieceHintRevealed(false);
       setMistakeSolutionRevealed(false);
       setPreviewFen(playerMistakes[nextIdx].fenBefore);
     } else {
@@ -359,9 +370,21 @@ export const App: React.FC = () => {
     }
   }, [mistakeIndex, playerMistakes]);
 
+  const handleRevealMistakePieceHint = useCallback(() => {
+    setMistakePieceHintRevealed(true);
+    const item = playerMistakes[mistakeIndex];
+    if (item && item.pieceSquare) {
+      sound.speak(`Внимание на поле ${item.pieceSquare}. Найдите лучший ход этой фигурой!`);
+    }
+  }, [playerMistakes, mistakeIndex]);
+
   const handleRevealMistakeSolution = useCallback(() => {
     setMistakeSolutionRevealed(true);
-  }, []);
+    const item = playerMistakes[mistakeIndex];
+    if (item && item.bestMoveSan) {
+      sound.speak(`Лучший ход: ${item.bestMoveSan}.`);
+    }
+  }, [playerMistakes, mistakeIndex]);
 
   const handleExitMistakeReplay = useCallback(() => {
     setIsMistakeReplayActive(false);
@@ -2561,6 +2584,7 @@ export const App: React.FC = () => {
             onStartMistakeReplay={handleStartMistakeReplay}
             activeMistake={activeMistake}
             onNextMistake={handleNextMistake}
+            onRevealMistakePieceHint={handleRevealMistakePieceHint}
             onRevealMistakeSolution={handleRevealMistakeSolution}
             onExitMistakeReplay={handleExitMistakeReplay}
             timeControlBadge={activeTimeControl?.label}
