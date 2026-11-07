@@ -24,9 +24,9 @@ import { MatchmakingModal } from './components/MatchmakingModal';
 import { UserProfileModal } from './components/UserProfileModal';
 import { multiplayerService } from './services/multiplayerService';
 import type { RankedMatchSession, MovePayload, DirectChallengePayload } from './services/multiplayerService';
-import { Swords } from 'lucide-react';
+import { Swords, RotateCw } from 'lucide-react';
 import { userService } from './services/userService';
-import type { UserProfile } from './services/userService';
+import type { UserProfile, ActiveGameSyncData } from './services/userService';
 import { cloudDatabase } from './services/cloudDatabase';
 import { classifySingleMove, calculatePlayerAccuracy, quickEvaluateFen } from './engine/evalFormulas';
 import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES } from './types/chess';
@@ -43,12 +43,41 @@ export const App: React.FC = () => {
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [scoreDelta, setScoreDelta] = useState<ScoreDeltaData | null>(null);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(() => cloudDatabase.isConnected);
+  const [remoteActiveGamePrompt, setRemoteActiveGamePrompt] = useState<ActiveGameSyncData | null>(null);
+  const lastLocalActionTimeRef = useRef<number>(Date.now());
 
   useEffect(() => {
     const updateCloud = () => setIsCloudConnected(cloudDatabase.isConnected);
     updateCloud();
     const interval = setInterval(updateCloud, 5000);
-    return () => clearInterval(interval);
+
+    // Subscribe to authoritative user updates from UserService / Supabase
+    const unsubUser = userService.subscribe((updated) => {
+      setCurrentUser({ ...updated });
+    });
+
+    // Window focus & visibility change sync hooks (PC & smartphone synchronization)
+    const handleSync = () => {
+      userService.refreshFromCloud().then(() => {
+        const cur = userService.getCurrentUser();
+        setCurrentUser({ ...cur });
+      });
+    };
+
+    window.addEventListener('focus', handleSync);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        handleSync();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      unsubUser();
+      window.removeEventListener('focus', handleSync);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   // Game mode & AI settings
@@ -675,6 +704,7 @@ export const App: React.FC = () => {
 
   // Player Move Handler
   const handlePieceDrop = (sourceSquare: string, targetSquare: string): boolean => {
+    lastLocalActionTimeRef.current = Date.now();
     if (isAiThinkingRef.current) return false;
 
     const currentBoardFen = previewFen || fens[currentPly] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -1426,6 +1456,10 @@ export const App: React.FC = () => {
 
   const handleResignCurrentGame = useCallback(() => {
     if (gameOverMessage) return;
+    userService.clearActiveGame();
+    localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+    setRemoteActiveGamePrompt(null);
+
     if (gameMode === 'ranked' && activeRankedSession) {
       if (activeRankedSession.isOnlinePvP) {
         multiplayerService.sendResign();
@@ -1542,49 +1576,17 @@ export const App: React.FC = () => {
     return () => clearInterval(timer);
   }, [gameMode, activeRankedSession, gameOverMessage, handleOpponentTimeout]);
 
-  // Persist active Ranked Match to localStorage so page refresh continues the game
-  useEffect(() => {
-    if (gameMode === 'ranked' && activeRankedSession) {
-      if (gameOverMessage) {
-        localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
-      } else {
-        try {
-          localStorage.setItem(
-            STORAGE_ACTIVE_RANKED_MATCH,
-            JSON.stringify({
-              session: activeRankedSession,
-              fens,
-              currentPly,
-              whiteTime,
-              blackTime,
-              lastTickTimestamp: Date.now(),
-              report
-            })
-          );
-        } catch {
-          // Ignore quota errors
-        }
-      }
-    }
-  }, [gameMode, activeRankedSession, fens, currentPly, whiteTime, blackTime, gameOverMessage, report]);
+  // Generic active game restoration (works for both Ranked and VS AI modes)
+  const restoreActiveGame = useCallback(
+    (saved: ActiveGameSyncData) => {
+      if (!saved || !Array.isArray(saved.fens) || saved.fens.length === 0) return;
 
-  // Restore active Ranked Match on page reload
-  const hasRestoredRankedRef = useRef(false);
-  useEffect(() => {
-    if (hasRestoredRankedRef.current) return;
-    hasRestoredRankedRef.current = true;
-    try {
-      const raw = localStorage.getItem(STORAGE_ACTIVE_RANKED_MATCH);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      if (!saved || !saved.session || !Array.isArray(saved.fens) || saved.fens.length === 0) return;
-
-      const session: RankedMatchSession = saved.session;
       const restoredFens: string[] = saved.fens;
       const latestFen = restoredFens[restoredFens.length - 1];
       const chess = new Chess(latestFen);
       if (chess.isGameOver()) {
         localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+        userService.clearActiveGame();
         return;
       }
 
@@ -1593,56 +1595,191 @@ export const App: React.FC = () => {
       setIsAnalyzing(false);
       setIsPlaying(false);
       setGameOverMessage(null);
-      setActiveRankedSession(session);
-      multiplayerService.setCurrentSession(session);
-      setGameMode('ranked');
-      setPlayerColor(session.myColor);
-      setIsFlipped(session.myColor === 'b');
-      setFens(restoredFens);
-      setCurrentPly(restoredFens.length - 1);
-      if (saved.report) {
-        setReport(saved.report);
-      }
 
-      if (session.isOnlinePvP) {
-        const elapsedSec = Math.max(
-          0,
-          Math.floor((Date.now() - (saved.lastTickTimestamp || Date.now())) / 1000)
-        );
-        const turn = chess.turn();
-        const wRestored =
-          typeof saved.whiteTime === 'number' ? saved.whiteTime : INITIAL_RANKED_TIME_SEC;
-        const bRestored =
-          typeof saved.blackTime === 'number' ? saved.blackTime : INITIAL_RANKED_TIME_SEC;
+      if (saved.gameMode === 'ranked' && saved.session) {
+        const session: RankedMatchSession = saved.session;
+        setActiveRankedSession(session);
+        multiplayerService.setCurrentSession(session);
+        setGameMode('ranked');
+        setPlayerColor(session.myColor);
+        setIsFlipped(session.myColor === 'b');
+        setFens(restoredFens);
+        setCurrentPly(restoredFens.length - 1);
+        if (saved.report) {
+          setReport(saved.report);
+        }
 
-        setWhiteTime(turn === 'w' ? Math.max(1, wRestored - elapsedSec) : wRestored);
-        setBlackTime(turn === 'b' ? Math.max(1, bRestored - elapsedSec) : bRestored);
+        if (session.isOnlinePvP) {
+          const elapsedSec = Math.max(
+            0,
+            Math.floor((Date.now() - (saved.lastTickTimestamp || Date.now())) / 1000)
+          );
+          const turn = chess.turn();
+          const wRestored =
+            typeof saved.whiteTime === 'number' ? saved.whiteTime : INITIAL_RANKED_TIME_SEC;
+          const bRestored =
+            typeof saved.blackTime === 'number' ? saved.blackTime : INITIAL_RANKED_TIME_SEC;
 
-        multiplayerService.joinGameRoom(
-          session.roomId,
-          handleOpponentOnlineMove,
-          handleOpponentResign,
-          () => {},
-          handleOpponentTimeout
-        );
-      } else {
-        if (session.opponent.aiDifficultyId) {
+          setWhiteTime(turn === 'w' ? Math.max(1, wRestored - elapsedSec) : wRestored);
+          setBlackTime(turn === 'b' ? Math.max(1, bRestored - elapsedSec) : bRestored);
+
+          multiplayerService.joinGameRoom(
+            session.roomId,
+            handleOpponentOnlineMove,
+            handleOpponentResign,
+            () => {},
+            handleOpponentTimeout
+          );
+        } else {
+          if (session.opponent.aiDifficultyId) {
+            const cfg =
+              AI_DIFFICULTIES.find((d) => d.id === session.opponent.aiDifficultyId) ||
+              AI_DIFFICULTIES[1];
+            setAiDepth(cfg.depth);
+            stockfish.setSkillLevel(cfg.skillLevel);
+          }
+          if (chess.turn() !== session.myColor) {
+            setTimeout(() => {
+              triggerAiMove(latestFen, restoredFens.length - 1);
+            }, 800);
+          }
+        }
+      } else if (saved.gameMode === 'vs-ai') {
+        setGameMode('vs-ai');
+        const color = saved.playerColor || 'w';
+        setPlayerColor(color);
+        setIsFlipped(color === 'b');
+        if (saved.aiDifficultyId) {
+          setAiDifficultyId(saved.aiDifficultyId);
           const cfg =
-            AI_DIFFICULTIES.find((d) => d.id === session.opponent.aiDifficultyId) ||
-            AI_DIFFICULTIES[1];
+            AI_DIFFICULTIES.find((d) => d.id === saved.aiDifficultyId) || AI_DIFFICULTIES[1];
           setAiDepth(cfg.depth);
           stockfish.setSkillLevel(cfg.skillLevel);
         }
-        if (chess.turn() !== session.myColor) {
+        setFens(restoredFens);
+        setCurrentPly(restoredFens.length - 1);
+        if (saved.report) {
+          setReport(saved.report);
+        }
+        if (chess.turn() !== color) {
           setTimeout(() => {
             triggerAiMove(latestFen, restoredFens.length - 1);
           }, 800);
         }
       }
-    } catch (err) {
-      console.warn('Could not restore ranked session:', err);
+    },
+    [handleOpponentOnlineMove, handleOpponentResign, handleOpponentTimeout, triggerAiMove]
+  );
+
+  // Persist active game to localStorage and central cloud (Cross-Device Continuity)
+  useEffect(() => {
+    if (gameMode === 'ranked' && activeRankedSession) {
+      if (gameOverMessage) {
+        localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+        userService.clearActiveGame();
+      } else {
+        const gamePayload: ActiveGameSyncData = {
+          gameMode: 'ranked',
+          session: activeRankedSession,
+          fens,
+          currentPly,
+          playerColor: activeRankedSession.myColor,
+          whiteTime,
+          blackTime,
+          lastTickTimestamp: Date.now(),
+          report,
+          updatedAt: new Date().toISOString()
+        };
+        try {
+          localStorage.setItem(STORAGE_ACTIVE_RANKED_MATCH, JSON.stringify(gamePayload));
+        } catch {
+          // Ignore storage quota
+        }
+        userService.setActiveGame(gamePayload);
+      }
+    } else if (gameMode === 'vs-ai' && fens.length > 1) {
+      if (gameOverMessage) {
+        userService.clearActiveGame();
+      } else {
+        const gamePayload: ActiveGameSyncData = {
+          gameMode: 'vs-ai',
+          aiDifficultyId,
+          playerColor,
+          fens,
+          currentPly,
+          report,
+          updatedAt: new Date().toISOString()
+        };
+        userService.setActiveGame(gamePayload);
+      }
     }
-  }, [handleOpponentOnlineMove, handleOpponentResign, handleOpponentTimeout, triggerAiMove]);
+  }, [
+    gameMode,
+    activeRankedSession,
+    fens,
+    currentPly,
+    whiteTime,
+    blackTime,
+    gameOverMessage,
+    report,
+    aiDifficultyId,
+    playerColor
+  ]);
+
+  // Restore active match on initial load from localStorage or authoritative cloud profile
+  const hasRestoredRankedRef = useRef(false);
+  useEffect(() => {
+    if (hasRestoredRankedRef.current) return;
+    hasRestoredRankedRef.current = true;
+
+    try {
+      // 1. Try cloud active game first
+      const cloudGame = currentUser.activeGame;
+      if (cloudGame && Array.isArray(cloudGame.fens) && cloudGame.fens.length > 0) {
+        const latestFen = cloudGame.fens[cloudGame.fens.length - 1];
+        const chess = new Chess(latestFen);
+        if (!chess.isGameOver()) {
+          restoreActiveGame(cloudGame);
+          return;
+        }
+      }
+
+      // 2. Fallback to localStorage active match
+      const raw = localStorage.getItem(STORAGE_ACTIVE_RANKED_MATCH);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved && Array.isArray(saved.fens) && saved.fens.length > 0) {
+        restoreActiveGame(saved);
+      }
+    } catch (err) {
+      console.warn('Could not restore game session:', err);
+    }
+  }, [currentUser, restoreActiveGame]);
+
+  // Detect remote active game changes while active (PC <-> Smartphone continuation)
+  useEffect(() => {
+    if (!currentUser.activeGame) {
+      setRemoteActiveGamePrompt(null);
+      return;
+    }
+
+    const remoteGame = currentUser.activeGame;
+    const remoteTime = new Date(remoteGame.updatedAt).getTime();
+    const isNewerThanLocal = remoteTime > lastLocalActionTimeRef.current + 2500;
+
+    if (isNewerThanLocal) {
+      // If we don't have an active match locally or remote has strictly more moves
+      const localPly = fens.length - 1;
+      const remotePly = remoteGame.fens ? remoteGame.fens.length - 1 : 0;
+
+      if (!activeRankedSession && gameMode !== 'vs-ai') {
+        setRemoteActiveGamePrompt(remoteGame);
+      } else if (remotePly > localPly) {
+        // User made a move on their other device -> seamlessly sync
+        restoreActiveGame(remoteGame);
+      }
+    }
+  }, [currentUser, activeRankedSession, gameMode, fens.length, restoreActiveGame]);
 
   const handleStartRankedSession = useCallback((session: RankedMatchSession) => {
     gameAnalyzer.cancel();
@@ -1812,6 +1949,10 @@ export const App: React.FC = () => {
   };
 
   const handleReset = () => {
+    userService.clearActiveGame();
+    localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+    setRemoteActiveGamePrompt(null);
+
     if (gameMode === 'ranked') {
       setIsMatchmakingOpen(true);
     } else if (gameMode === 'vs-ai') {
@@ -2016,6 +2157,36 @@ export const App: React.FC = () => {
         canUndoMove={canUndoMove}
         onUndoMove={handleUndoMove}
       />
+
+      {/* Floating cross-device game resume notification */}
+      {remoteActiveGamePrompt && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 p-3 rounded-xl bg-[#141414] border border-[#1baca6] shadow-2xl flex items-center gap-3 backdrop-blur-md animate-in slide-in-from-top max-w-md w-[92%] sm:w-full">
+          <RotateCw className="w-4 h-4 text-[#1baca6] shrink-0" />
+          <div className="flex-1 truncate">
+            <span className="text-xs font-mono text-white block truncate">
+              Партия с другого устройства ({remoteActiveGamePrompt.gameMode === 'ranked' ? 'Рейтинг' : 'Игра с ИИ'}, Ход {remoteActiveGamePrompt.currentPly})
+            </span>
+            <span className="text-[10px] font-mono text-[#888888] block">
+              Синхронизировано из облака Supabase
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              restoreActiveGame(remoteActiveGamePrompt);
+              setRemoteActiveGamePrompt(null);
+            }}
+            className="px-2.5 py-1 rounded bg-[#1baca6] text-black font-mono font-bold text-xs hover:bg-[#20c2bc] transition-colors shrink-0"
+          >
+            Продолжить
+          </button>
+          <button
+            onClick={() => setRemoteActiveGamePrompt(null)}
+            className="px-2 py-1 rounded bg-[#222222] text-[#888888] font-mono text-xs hover:text-white transition-colors shrink-0"
+          >
+            Скрыть
+          </button>
+        </div>
+      )}
 
       {/* Floating incoming friend challenge notification */}
       {incomingChallenge && (

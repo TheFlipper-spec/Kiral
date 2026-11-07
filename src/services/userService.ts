@@ -1,5 +1,23 @@
 import { cloudDatabase } from './cloudDatabase';
 
+export function getDeterministicUserId(username: string): string {
+  return `usr_${encodeURIComponent(username.trim().toLowerCase())}`;
+}
+
+export interface ActiveGameSyncData {
+  gameMode: 'ranked' | 'vs-ai';
+  session?: any;
+  aiDifficultyId?: string;
+  playerColor?: 'w' | 'b';
+  fens: string[];
+  currentPly: number;
+  whiteTime?: number;
+  blackTime?: number;
+  lastTickTimestamp?: number;
+  report?: any;
+  updatedAt: string;
+}
+
 export interface UserProfile {
   id: string;
   username: string;
@@ -20,6 +38,7 @@ export interface UserProfile {
   email?: string;
   createdAt: string;
   lastActiveAt?: string;
+  activeGame?: ActiveGameSyncData | null;
 }
 
 const STORAGE_USERS_KEY = 'kiral_real_chess_users_v3';
@@ -28,10 +47,30 @@ const STORAGE_CURRENT_USER_ID = 'kiral_chess_current_user_id_v3';
 class UserService {
   private users: UserProfile[] = [];
   private currentUserId: string = '';
+  private userListeners: Array<(user: UserProfile) => void> = [];
 
   constructor() {
     this.loadState();
     this.initCloudSync();
+    this.startCloudPolling();
+  }
+
+  public subscribe(listener: (user: UserProfile) => void): () => void {
+    this.userListeners.push(listener);
+    return () => {
+      this.userListeners = this.userListeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notifyListeners() {
+    const current = this.getCurrentUser();
+    this.userListeners.forEach((fn) => {
+      try {
+        fn(current);
+      } catch {
+        // Ignore listener error
+      }
+    });
   }
 
   private loadState() {
@@ -45,35 +84,74 @@ class UserService {
         this.users = [];
       }
 
+      // Reconcile and migrate registered users to deterministic IDs and deduplicate by username
+      const dedupMap = new Map<string, UserProfile>();
+      this.users.forEach((u) => {
+        if (u.isRegistered && u.authProvider !== 'guest' && u.username && u.username !== 'Гость') {
+          const canonicalId = getDeterministicUserId(u.username);
+          if (this.currentUserId === u.id) {
+            this.currentUserId = canonicalId;
+          }
+          u.id = canonicalId;
+          const key = u.username.toLowerCase();
+          const existing = dedupMap.get(key);
+          if (!existing) {
+            dedupMap.set(key, u);
+          } else {
+            const useCurrent = (u.stats?.totalGames || 0) >= (existing.stats?.totalGames || 0);
+            dedupMap.set(key, {
+              ...existing,
+              ...u,
+              id: canonicalId,
+              elo: useCurrent ? u.elo : existing.elo,
+              stats: useCurrent ? (u.stats || existing.stats) : (existing.stats || u.stats),
+              puzzlePoints: Math.max(existing.puzzlePoints || 0, u.puzzlePoints || 0),
+              solvedPuzzleIds: Array.from(new Set([...(existing.solvedPuzzleIds || []), ...(u.solvedPuzzleIds || [])]))
+            });
+          }
+        } else {
+          dedupMap.set(u.id, u);
+        }
+      });
+      this.users = Array.from(dedupMap.values());
+
       const savedCurrentId = localStorage.getItem(STORAGE_CURRENT_USER_ID);
       if (savedCurrentId && this.users.some(u => u.id === savedCurrentId)) {
         this.currentUserId = savedCurrentId;
+      } else if (this.users.length > 0) {
+        this.currentUserId = this.users[0].id;
       } else {
         // Initial guest player (default 100 ELO, not registered)
-        let defaultPlayer = this.users[0];
-        if (!defaultPlayer) {
-          defaultPlayer = {
-            id: `guest-${Date.now().toString(36)}`,
-            username: 'Гость',
-            isRegistered: false,
-            elo: 100,
-            puzzlePoints: 0,
-            solvedPuzzleIds: [],
-            friends: [],
-            stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
-            authProvider: 'guest',
-            createdAt: new Date().toISOString().slice(0, 10),
-            lastActiveAt: new Date().toISOString()
-          };
-          this.users.push(defaultPlayer);
-          this.saveUsers();
-        }
+        const defaultPlayer: UserProfile = {
+          id: `guest-${Date.now().toString(36)}`,
+          username: 'Гость',
+          isRegistered: false,
+          elo: 100,
+          puzzlePoints: 0,
+          solvedPuzzleIds: [],
+          friends: [],
+          stats: { wins: 0, losses: 0, draws: 0, totalGames: 0 },
+          authProvider: 'guest',
+          createdAt: new Date().toISOString().slice(0, 10),
+          lastActiveAt: new Date().toISOString()
+        };
+        this.users.push(defaultPlayer);
         this.currentUserId = defaultPlayer.id;
-        localStorage.setItem(STORAGE_CURRENT_USER_ID, this.currentUserId);
+        this.saveUsers();
       }
+      localStorage.setItem(STORAGE_CURRENT_USER_ID, this.currentUserId);
     } catch {
       this.users = [];
     }
+  }
+
+  private startCloudPolling() {
+    if (typeof window === 'undefined') return;
+    setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        this.refreshFromCloud();
+      }
+    }, 8000);
   }
 
   private async initCloudSync() {
@@ -104,43 +182,90 @@ class UserService {
   }
 
   private mergePlayers(remotePlayers: UserProfile[]) {
-    const map = new Map<string, UserProfile>();
-    this.users.forEach((u) => map.set(u.id, u));
+    const oldCurrent = this.getCurrentUser();
+    const oldCurrentKey = oldCurrent?.username ? oldCurrent.username.toLowerCase() : '';
 
     remotePlayers.forEach((rem) => {
-      if (rem.authProvider === 'guest') return;
-      const existing = map.get(rem.id);
-      if (!existing) {
-        map.set(rem.id, { ...rem, isRegistered: true, friends: rem.friends || [] });
+      if (rem.authProvider === 'guest' || rem.username === 'Гость' || rem.username === 'Игрок') return;
+      const canonicalId = getDeterministicUserId(rem.username);
+      const remKey = rem.username.toLowerCase();
+
+      // Find local user by rem.id, canonicalId, or matching username
+      const existingIndex = this.users.findIndex(
+        (u) => u.id === rem.id || u.id === canonicalId || u.username.toLowerCase() === remKey
+      );
+
+      if (existingIndex < 0) {
+        this.users.push({
+          ...rem,
+          id: canonicalId,
+          isRegistered: true,
+          friends: rem.friends || []
+        });
       } else {
-        const isCurrentUser = rem.id === this.currentUserId;
+        const existing = this.users[existingIndex];
+        const isCurrentUser = existing.id === this.currentUserId || existing.username.toLowerCase() === oldCurrentKey;
         const remGames = rem.stats?.totalGames || 0;
         const localGames = existing.stats?.totalGames || 0;
         const remTime = rem.lastActiveAt ? new Date(rem.lastActiveAt).getTime() : 0;
         const localTime = existing.lastActiveAt ? new Date(existing.lastActiveAt).getTime() : 0;
 
-        // For any other player, cloud is always the authoritative source of truth.
-        // For current user, prefer whichever state has more played games or newer timestamp.
-        const useRemoteStats = !isCurrentUser || remGames > localGames || (remGames === localGames && remTime >= localTime);
+        // Authoritative resolution:
+        // Remote wins if it has more played games OR newer timestamp, or if not the current session
+        const useRemoteStats = remGames > localGames || (remGames === localGames && remTime >= localTime) || !isCurrentUser;
 
         const allSolved = Array.from(new Set([...(existing.solvedPuzzleIds || []), ...(rem.solvedPuzzleIds || [])]));
         const mergedFriends = Array.from(new Set([...(existing.friends || []), ...(rem.friends || [])]));
 
-        map.set(rem.id, {
+        // Reconcile activeGame
+        let resolvedActiveGame = existing.activeGame;
+        if (rem.activeGame) {
+          if (!existing.activeGame) {
+            resolvedActiveGame = rem.activeGame;
+          } else {
+            const remGameTime = new Date(rem.activeGame.updatedAt).getTime();
+            const localGameTime = new Date(existing.activeGame.updatedAt).getTime();
+            if (remGameTime >= localGameTime) {
+              resolvedActiveGame = rem.activeGame;
+            }
+          }
+        }
+
+        const merged: UserProfile = {
           ...existing,
           ...rem,
+          id: canonicalId,
           isRegistered: true,
           elo: useRemoteStats ? rem.elo : existing.elo,
           stats: useRemoteStats ? (rem.stats || existing.stats) : existing.stats,
-          puzzlePoints: useRemoteStats ? rem.puzzlePoints : Math.max(existing.puzzlePoints, rem.puzzlePoints),
+          puzzlePoints: useRemoteStats ? rem.puzzlePoints : Math.max(existing.puzzlePoints || 0, rem.puzzlePoints || 0),
           solvedPuzzleIds: allSolved,
-          friends: mergedFriends
-        });
+          friends: mergedFriends,
+          activeGame: resolvedActiveGame
+        };
+
+        this.users[existingIndex] = merged;
+
+        // If local had strictly more games than remote, sync to cloud so remote gets updated!
+        if (localGames > remGames && merged.isRegistered && merged.authProvider !== 'guest') {
+          cloudDatabase.syncPlayer(merged);
+        }
       }
     });
 
-    this.users = Array.from(map.values());
+    // Reconcile current user ID to canonical ID
+    const current = this.users.find(
+      (u) => u.id === this.currentUserId || (oldCurrentKey && u.username.toLowerCase() === oldCurrentKey)
+    );
+    if (current && current.isRegistered && current.authProvider !== 'guest') {
+      const canonicalId = getDeterministicUserId(current.username);
+      current.id = canonicalId;
+      this.currentUserId = canonicalId;
+      localStorage.setItem(STORAGE_CURRENT_USER_ID, canonicalId);
+    }
+
     this.saveUsers();
+    this.notifyListeners();
   }
 
   private saveUsers() {
@@ -222,11 +347,12 @@ class UserService {
       return { success: false, user: this.getCurrentUser(), error: 'Пароль обязателен (минимум 3 символа)' };
     }
 
-    let user = this.users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    const canonicalId = getDeterministicUserId(username);
+    let user = this.users.find(u => u.id === canonicalId || u.username.toLowerCase() === username.toLowerCase());
 
     if (!user) {
       user = {
-        id: `player-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+        id: canonicalId,
         username,
         password,
         isRegistered: true,
@@ -244,6 +370,7 @@ class UserService {
       if (user.password && user.password !== password) {
         return { success: false, user: this.getCurrentUser(), error: 'Неверный пароль для этого аккаунта' };
       }
+      user.id = canonicalId;
       user.password = password;
       user.isRegistered = true;
       user.authProvider = 'custom';
@@ -254,7 +381,38 @@ class UserService {
     localStorage.setItem(STORAGE_CURRENT_USER_ID, user.id);
     this.saveUsers();
     cloudDatabase.syncPlayer(user);
+
+    // Immediately trigger cloud sync so device reconciles stats
+    this.refreshFromCloud().then(() => {
+      this.notifyListeners();
+    });
+
     return { success: true, user };
+  }
+
+  public getActiveGame(): ActiveGameSyncData | null {
+    const user = this.getCurrentUser();
+    return user?.activeGame || null;
+  }
+
+  public setActiveGame(activeGame: ActiveGameSyncData): void {
+    const user = this.getCurrentUser();
+    if (!user || !user.isRegistered || user.authProvider === 'guest') return;
+    user.activeGame = activeGame;
+    user.lastActiveAt = new Date().toISOString();
+    this.saveUsers();
+    cloudDatabase.syncPlayer(user);
+  }
+
+  public clearActiveGame(): void {
+    const user = this.getCurrentUser();
+    if (!user || !user.isRegistered || user.authProvider === 'guest') return;
+    if (user.activeGame) {
+      user.activeGame = null;
+      user.lastActiveAt = new Date().toISOString();
+      this.saveUsers();
+      cloudDatabase.syncPlayer(user);
+    }
   }
 
   public logoutUser(): UserProfile {

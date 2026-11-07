@@ -354,7 +354,8 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const boardWidthClass = "w-full max-w-[min(94vw,calc(100vh-140px),580px)] landscape:max-lg:max-w-[min(94vw,calc(100vh-100px),360px)]";
+  const boardWidthClass =
+    "w-full max-w-[min(96vw,calc(52vh-20px))] sm:max-w-[min(96vw,calc(100vh-175px))] lg:max-w-[min(calc(100vw-460px),calc(100vh-165px))] xl:max-w-[min(calc(100vw-500px),calc(100vh-160px))] landscape:max-lg:max-w-[min(96vw,calc(100vh-115px))]";
 
   return (
     <div className="flex flex-col items-center justify-center px-1 sm:px-2 py-1 select-none h-full w-full overflow-hidden">

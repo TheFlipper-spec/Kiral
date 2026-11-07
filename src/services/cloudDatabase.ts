@@ -118,25 +118,48 @@ class CloudDatabaseService {
         if (data && Array.isArray(data)) {
           return data
             .filter((row) => row.auth_provider !== 'guest' && row.username !== 'Игрок')
-            .map((row) => ({
-              id: row.id,
-              username: row.username,
-              isRegistered: true,
-              elo: Number(row.elo) || 100,
-              puzzlePoints: Number(row.puzzle_points) || 0,
-              solvedPuzzleIds: Array.isArray(row.solved_puzzles) ? row.solved_puzzles : [],
-              friends: [],
-              stats: {
-                wins: Number(row.wins) || 0,
-                losses: Number(row.losses) || 0,
-                draws: Number(row.draws) || 0,
-                totalGames: Number(row.total_games) || 0
-              },
-              authProvider: row.auth_provider || 'custom',
-              avatarUrl: row.avatar_url,
-              createdAt: row.created_at || new Date().toISOString().slice(0, 10),
-              lastActiveAt: row.last_active_at
-            }));
+            .map((row) => {
+              let parsedAvatar: string | undefined = undefined;
+              let parsedPassword: string | undefined = undefined;
+              let parsedActiveGame: any = null;
+
+              if (row.avatar_url && typeof row.avatar_url === 'string') {
+                if (row.avatar_url.trim().startsWith('{')) {
+                  try {
+                    const parsed = JSON.parse(row.avatar_url);
+                    parsedAvatar = parsed.avatar || undefined;
+                    parsedPassword = parsed.pwd || undefined;
+                    parsedActiveGame = parsed.activeGame || null;
+                  } catch {
+                    parsedAvatar = row.avatar_url;
+                  }
+                } else {
+                  parsedAvatar = row.avatar_url;
+                }
+              }
+
+              return {
+                id: row.id,
+                username: row.username,
+                password: parsedPassword,
+                activeGame: parsedActiveGame,
+                isRegistered: true,
+                elo: Number(row.elo) || 100,
+                puzzlePoints: Number(row.puzzle_points) || 0,
+                solvedPuzzleIds: Array.isArray(row.solved_puzzles) ? row.solved_puzzles : [],
+                friends: [],
+                stats: {
+                  wins: Number(row.wins) || 0,
+                  losses: Number(row.losses) || 0,
+                  draws: Number(row.draws) || 0,
+                  totalGames: Number(row.total_games) || 0
+                },
+                authProvider: row.auth_provider || 'custom',
+                avatarUrl: parsedAvatar,
+                createdAt: row.created_at || new Date().toISOString().slice(0, 10),
+                lastActiveAt: row.last_active_at
+              };
+            });
         }
       } catch (err) {
         console.warn('Supabase query failed:', err);
@@ -189,6 +212,15 @@ class CloudDatabaseService {
     // 1. Supabase Postgres
     if (this.supabase && this.config.provider === 'supabase') {
       try {
+        let avatarPayload: string | null = null;
+        if (user.avatarUrl || user.password || user.activeGame) {
+          avatarPayload = JSON.stringify({
+            avatar: user.avatarUrl || null,
+            pwd: user.password || null,
+            activeGame: user.activeGame || null
+          });
+        }
+
         const { error } = await this.supabase.from('kiral_players').upsert(
           {
             id: user.id,
@@ -201,7 +233,7 @@ class CloudDatabaseService {
             draws: user.stats.draws,
             total_games: user.stats.totalGames,
             auth_provider: user.authProvider || 'custom',
-            avatar_url: user.avatarUrl || null,
+            avatar_url: avatarPayload,
             last_active_at: new Date().toISOString()
           },
           { onConflict: 'id' }
