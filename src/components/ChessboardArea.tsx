@@ -248,6 +248,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       const chess = new Chess(fen);
       const piece = chess.get(selectedSquare as Parameters<typeof chess.get>[0]);
       if (!piece || piece.color !== chess.turn()) return [];
+      if (bottomPlayer && topPlayer && piece.color !== bottomPlayer.color) return [];
 
       const verboseMoves = chess.moves({
         square: selectedSquare as Parameters<typeof chess.moves>[0]['square'],
@@ -310,6 +311,9 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
 
       // No piece selected yet -> select if piece belongs to current turn
       if (clickedPiece && clickedPiece.color === chess.turn()) {
+        if (bottomPlayer && topPlayer && clickedPiece.color !== bottomPlayer.color) {
+          return;
+        }
         setSelectedSquare(square);
       }
     } catch {
@@ -996,8 +1000,8 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
 
           {/* Compact floating banner when modal is dismissed and mistake replay is not active */}
           {gameOverMessage && isDismissedGameOver && !activeMistake && (
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-[#141414]/95 border border-[#333333] shadow-2xl backdrop-blur-md text-[11px] sm:text-xs font-mono max-w-[94%] select-none">
-              <span className="text-[#EDEDED] font-semibold truncate max-w-[170px] xs:max-w-[220px] sm:max-w-xs md:max-w-md">
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-[#141414]/95 border border-[#333333] shadow-2xl backdrop-blur-md text-[11px] sm:text-xs font-mono max-w-[96%] select-none shrink-0 whitespace-nowrap overflow-x-auto no-scrollbar">
+              <span className="text-[#EDEDED] font-semibold whitespace-nowrap">
                 {gameOverMessage}
               </span>
               <button
@@ -1005,8 +1009,8 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                 className="text-[#1baca6] hover:text-[#25d3cc] flex items-center gap-1 text-[10px] sm:text-[11px] shrink-0 font-medium px-1.5 py-0.5 rounded hover:bg-[#202020] transition-colors cursor-pointer"
                 title="Показать окно результата"
               >
-                <Eye className="w-3 h-3" />
-                <span>Окно</span>
+                <Eye className="w-3 h-3 shrink-0" />
+                <span className="whitespace-nowrap">Окно</span>
               </button>
               {Boolean(mistakeCount && mistakeCount > 0 && onStartMistakeReplay) && (
                 <button
@@ -1014,17 +1018,17 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                   className="px-2 py-0.5 rounded bg-[#1baca6]/20 border border-[#1baca6]/40 hover:bg-[#1baca6]/30 text-[#1baca6] text-[10px] sm:text-[11px] font-bold flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
                   title="Работа над ошибками"
                 >
-                  <Target className="w-3 h-3" />
-                  <span className="hidden xs:inline">Ошибки</span> ({mistakeCount})
+                  <Target className="w-3 h-3 shrink-0" />
+                  <span className="whitespace-nowrap">Ошибки ({mistakeCount})</span>
                 </button>
               )}
               {onRestartGame && (
                 <button
                   onClick={onRestartGame}
-                  className="px-2 py-0.5 rounded bg-[#222222] hover:bg-[#2c2c2c] border border-[#333333] text-[#CCCCCC] hover:text-white text-[10px] sm:text-[11px] flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                  className="px-2 py-0.5 rounded bg-[#222222] hover:bg-[#2c2c2c] border border-[#333333] text-[#CCCCCC] hover:text-white text-[10px] sm:text-[11px] flex items-center gap-1 transition-colors shrink-0 cursor-pointer whitespace-nowrap"
                 >
-                  <RotateCw className="w-3 h-3" />
-                  <span>Переиграть</span>
+                  <RotateCw className="w-3 h-3 shrink-0" />
+                  <span className="whitespace-nowrap">Переиграть</span>
                 </button>
               )}
             </div>

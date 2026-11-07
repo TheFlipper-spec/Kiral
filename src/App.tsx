@@ -43,6 +43,8 @@ export const App: React.FC = () => {
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false);
   const [leaderboardTab, setLeaderboardTab] = useState<'elo' | 'puzzles' | 'friends'>('elo');
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+  const [authPromptMessage, setAuthPromptMessage] = useState<string | null>(null);
+  const [pendingPostAuthAction, setPendingPostAuthAction] = useState<'ranked' | null>(null);
   const [scoreDelta, setScoreDelta] = useState<ScoreDeltaData | null>(null);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(() => cloudDatabase.isConnected);
   const [remoteActiveGamePrompt, setRemoteActiveGamePrompt] = useState<ActiveGameSyncData | null>(null);
@@ -875,9 +877,11 @@ export const App: React.FC = () => {
     }
 
     // In Puzzle mode, handle puzzle step validation with detailed Coach Explanations
-    if (gameMode === 'puzzles') {
+    const isPuzzleMode = gameMode === 'puzzles' || (gameMode === 'learn' && activeLearnTab === 'puzzles');
+    if (isPuzzleMode) {
       const activePuzzle = PUZZLES[currentPuzzleIndex] || PUZZLES[0];
       if (!activePuzzle || puzzleStatus === 'solved') return false;
+      if (chess.turn() !== activePuzzle.turn) return false;
 
       let pMove: Move | null = null;
       try {
@@ -1270,6 +1274,7 @@ export const App: React.FC = () => {
       setFens([puzzle.fen]);
       setCurrentPly(0);
       setIsFlipped(puzzle.turn === 'b');
+      setPlayerColor(puzzle.turn);
       setPuzzleStatus('playing');
       setPuzzleStep(0);
       setPuzzleMistakeAnalysis(null);
@@ -2160,12 +2165,25 @@ export const App: React.FC = () => {
     gameAnalyzer.cancel();
     stockfish.clearQueue();
     setIsAnalyzing(false);
-    setGameMode(newMode);
+
     if (newMode === 'ranked') {
+      const isGuest = !currentUser.isRegistered || currentUser.authProvider === 'guest';
+      if (isGuest) {
+        setPendingPostAuthAction('ranked');
+        setAuthPromptMessage('Для участия в соревновательном рейтинге и сохранения ELO необходима регистрация или вход в профиль.');
+        setIsAuthOpen(true);
+        sound.speak('Для входа в рейтинг требуется регистрация.');
+        return;
+      }
+      setGameMode(newMode);
       if (!activeRankedSession || Boolean(gameOverMessage)) {
         setIsMatchmakingOpen(true);
       }
-    } else if (newMode === 'vs-ai') {
+      return;
+    }
+
+    setGameMode(newMode);
+    if (newMode === 'vs-ai') {
       startVsAiGame(playerColor);
     } else if (newMode === 'pvp') {
       startPvpGame();
@@ -2658,9 +2676,24 @@ export const App: React.FC = () => {
 
       <AuthModal
         isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
+        onClose={() => {
+          setIsAuthOpen(false);
+          setAuthPromptMessage(null);
+          setPendingPostAuthAction(null);
+        }}
         currentUser={currentUser}
-        onUserChanged={(u) => setCurrentUser(u)}
+        promptMessage={authPromptMessage}
+        onUserChanged={(u) => {
+          setCurrentUser({ ...u });
+          if (u.isRegistered && u.authProvider !== 'guest' && pendingPostAuthAction === 'ranked') {
+            setPendingPostAuthAction(null);
+            setAuthPromptMessage(null);
+            setIsAuthOpen(false);
+            setGameMode('ranked');
+            setIsMatchmakingOpen(true);
+            sound.speak('Добро пожаловать в рейтинг!');
+          }
+        }}
       />
 
       <MatchmakingModal

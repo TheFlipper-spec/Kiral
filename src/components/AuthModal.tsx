@@ -11,13 +11,15 @@ interface AuthModalProps {
   onClose: () => void;
   currentUser: UserProfile;
   onUserChanged: (user: UserProfile) => void;
+  promptMessage?: string | null;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
   currentUser,
-  onUserChanged
+  onUserChanged,
+  promptMessage
 }) => {
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
@@ -175,15 +177,41 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         <div className="overflow-y-auto flex-1 p-4 space-y-4">
+          {promptMessage && (
+            <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-600/60 flex items-start gap-2.5 text-xs font-mono text-amber-200 shadow-sm animate-in fade-in">
+              <Shield className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" strokeWidth={1.5} />
+              <span className="leading-relaxed">{promptMessage}</span>
+            </div>
+          )}
+
           {/* Current Active Account Box */}
           <div className="p-3.5 rounded border border-[#262626] bg-[#161616]">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10px] font-mono uppercase text-[#777777] tracking-wider">
                 Текущий активный профиль
               </span>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
-                {currentUser.authProvider === 'auth0' ? 'Auth0' : currentUser.isRegistered ? 'Игрок' : 'Гость'}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsSyncing(true);
+                    await userService.refreshFromCloud();
+                    onUserChanged({ ...userService.getCurrentUser() });
+                    setIsSyncing(false);
+                    setSuccessMsg('Профиль синхронизирован с сервером');
+                    setTimeout(() => setSuccessMsg(null), 2500);
+                  }}
+                  disabled={isSyncing}
+                  className="px-1.5 py-0.5 rounded text-[10px] font-mono text-[#1baca6] hover:text-[#25d3cc] bg-[#181818] border border-[#262626] hover:bg-[#202020] flex items-center gap-1 transition-colors"
+                  title="Принудительно обновить статистику и ELO из облачной базы"
+                >
+                  <RefreshCw className={`w-2.5 h-2.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>Обновить</span>
+                </button>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                  {currentUser.authProvider === 'auth0' ? 'Auth0' : currentUser.isRegistered ? 'Игрок' : 'Гость'}
+                </span>
+              </div>
             </div>
             <div className="flex items-center justify-between">
               <span className="font-mono text-lg font-bold text-white">

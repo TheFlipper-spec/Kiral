@@ -262,8 +262,8 @@ class UserService {
 
         this.users[existingIndex] = merged;
 
-        // If local had strictly more games than remote, sync to cloud so remote gets updated!
-        if (localGames > remGames && merged.isRegistered && merged.authProvider !== 'guest') {
+        // If local had more games or newer timestamp, sync to cloud so remote gets updated!
+        if ((localGames > remGames || (localGames === remGames && localTime > remTime)) && merged.isRegistered && merged.authProvider !== 'guest') {
           cloudDatabase.syncPlayer(merged);
         }
       }

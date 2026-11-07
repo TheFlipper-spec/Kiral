@@ -239,7 +239,7 @@ class CloudDatabaseService {
           .from('kiral_players')
           .select('*')
           .or(`id.eq.${canonicalId},id.eq.${legacyId},id.eq.${idOrUsername},username.ilike.${idOrUsername}`)
-          .order('total_games', { ascending: false })
+          .order('last_active_at', { ascending: false })
           .limit(1);
 
         if (!error && data && data.length > 0) {
