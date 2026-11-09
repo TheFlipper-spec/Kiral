@@ -28,6 +28,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     try {
       localStorage.removeItem('kiral_analysis_enabled');
       localStorage.removeItem('kiral_active_ranked_match');
+      const rawUsers = localStorage.getItem('kiral_real_chess_users_v3');
+      if (rawUsers) {
+        const parsed = JSON.parse(rawUsers);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.map((u: any) => (u && typeof u === 'object' ? { ...u, activeGame: null } : u));
+          localStorage.setItem('kiral_real_chess_users_v3', JSON.stringify(cleaned));
+        }
+      }
       sessionStorage.clear();
     } catch {}
     window.location.reload();

@@ -38,8 +38,10 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'summary' | 'moves'>('moves');
 
-  const moves = report?.moves || [];
-  const currentMove: MoveAnalysis | undefined = currentPly > 0 ? moves[currentPly - 1] : undefined;
+  const rawMoves = report?.moves || [];
+  const moves = rawMoves.filter((m): m is MoveAnalysis => Boolean(m));
+  const currentMove: MoveAnalysis | undefined =
+    currentPly > 0 ? (rawMoves[currentPly - 1] ?? undefined) : undefined;
 
   const progressPct = progress
     ? Math.round((progress.currentPly / Math.max(1, progress.totalPlies)) * 100)

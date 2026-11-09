@@ -469,10 +469,65 @@ export const App: React.FC = () => {
 
   const buildUpdatedReport = useCallback(
     (prev: GameReport | null, plyIndex: number, analysis: MoveAnalysis): GameReport => {
-      const existingMoves = prev ? [...prev.moves] : [];
+      const existingMoves: MoveAnalysis[] = prev && Array.isArray(prev.moves) ? [...prev.moves] : [];
       existingMoves[plyIndex] = analysis;
-      // Keep only valid contiguous or defined moves up to max ply
-      const cleanMoves = existingMoves.filter(Boolean);
+
+      // Backfill any missing plies from fensRef so the array is never sparse (no null/undefined holes)
+      for (let i = 0; i <= plyIndex; i++) {
+        if (!existingMoves[i]) {
+          const fBefore = fensRef.current[i] || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+          const fAfter = fensRef.current[i + 1] || fBefore;
+          let detectedSan = '...';
+          let detectedUci = '';
+          let detectedFrom = 'e2';
+          let detectedTo = 'e4';
+          let detectedPiece = 'p';
+          let detectedCaptured: string | undefined = undefined;
+          try {
+            const tempChess = new Chess(fBefore);
+            const afterBoard = fAfter.split(' ')[0];
+            const found = tempChess.moves({ verbose: true }).find((m) => m.after.split(' ')[0] === afterBoard);
+            if (found) {
+              detectedSan = found.san;
+              detectedUci = found.from + found.to + (found.promotion || '');
+              detectedFrom = found.from;
+              detectedTo = found.to;
+              detectedPiece = found.piece;
+              detectedCaptured = found.captured;
+            }
+          } catch {}
+
+          existingMoves[i] = {
+            ply: i,
+            moveNumber: Math.floor(i / 2) + 1,
+            turn: i % 2 === 0 ? 'w' : 'b',
+            san: detectedSan,
+            uci: detectedUci,
+            from: detectedFrom,
+            to: detectedTo,
+            piece: detectedPiece,
+            captured: detectedCaptured,
+            fenBefore: fBefore,
+            fenAfter: fAfter,
+            evalBefore: 0,
+            evalAfter: 0,
+            mateBefore: null,
+            mateAfter: null,
+            winPercentBefore: 50,
+            winPercentAfter: 50,
+            winPercentLoss: 0,
+            centipawnLoss: 0,
+            classification: 'good',
+            classificationReason: 'Ход синхронизирован',
+            bestMoveUci: detectedUci,
+            bestMoveSan: detectedSan,
+            bestLinePv: [],
+            depth: 1
+          };
+        }
+      }
+
+      const cleanMoves = existingMoves.filter((m): m is MoveAnalysis => Boolean(m));
 
       const counts = {
         white: {} as Record<MoveClassification, number>,
@@ -505,7 +560,7 @@ export const App: React.FC = () => {
             : 'Интерактивный разбор'),
         date: prev?.date || new Date().toISOString().slice(0, 10),
         result: prev?.result || '*',
-        moves: existingMoves,
+        moves: cleanMoves,
         classificationSummary: counts
       };
     },
@@ -1555,17 +1610,16 @@ export const App: React.FC = () => {
 
   const handleOpponentOnlineMove = useCallback(
     (movePayload: MovePayload) => {
-      // If full fens history was attached and opponent is ahead, instantly catch up
-      if (Array.isArray(movePayload.fens) && movePayload.fens.length > fensRef.current.length) {
-        fensRef.current = movePayload.fens;
-        setFens(movePayload.fens);
-        const lastIdx = movePayload.fens.length - 1;
-        setCurrentPly(lastIdx);
-        currentPlyRef.current = lastIdx;
-        if (typeof movePayload.whiteTime === 'number') setWhiteTime(movePayload.whiteTime);
-        if (typeof movePayload.blackTime === 'number') setBlackTime(movePayload.blackTime);
-        sound.playMove();
+      // Deduplicate if move was already applied
+      if (Array.isArray(movePayload.fens) && movePayload.fens.length <= fensRef.current.length) {
         return;
+      }
+
+      // If opponent is more than 1 ply ahead (missed packets), fast-forward prefix fens up to the move's starting position
+      if (Array.isArray(movePayload.fens) && movePayload.fens.length > fensRef.current.length + 1) {
+        const prefixFens = movePayload.fens.slice(0, movePayload.fens.length - 1);
+        fensRef.current = prefixFens;
+        setFens(prefixFens);
       }
 
       // Always apply opponent's move to the LATEST position of the board
@@ -2054,7 +2108,10 @@ export const App: React.FC = () => {
         setFens(restoredFens);
         setCurrentPly(restoredFens.length - 1);
         if (saved.report) {
-          setReport(saved.report);
+          setReport({
+            ...saved.report,
+            moves: Array.isArray(saved.report.moves) ? saved.report.moves.filter(Boolean) : []
+          });
         }
 
         const wRestored =
@@ -2116,7 +2173,10 @@ export const App: React.FC = () => {
         setFens(restoredFens);
         setCurrentPly(restoredFens.length - 1);
         if (saved.report) {
-          setReport(saved.report);
+          setReport({
+            ...saved.report,
+            moves: Array.isArray(saved.report.moves) ? saved.report.moves.filter(Boolean) : []
+          });
         }
         if (chess.turn() !== color) {
           setTimeout(() => {

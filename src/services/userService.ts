@@ -124,10 +124,26 @@ class UserService {
       // Strict Account Isolation & Security:
       // Keep ONLY accounts that were authenticated on THIS device with verified credentials.
       // Foreign players / match opponents (like Kosoubik) are never kept in this device's storage.
-      this.users = Array.from(dedupMap.values()).filter((u) => {
-        if (!u.isRegistered || u.authProvider === 'guest') return true;
-        return Boolean(u.password) && (u.id === savedCurrentId || !savedCurrentId);
-      });
+      this.users = Array.from(dedupMap.values())
+        .filter((u) => {
+          if (!u.isRegistered || u.authProvider === 'guest') return true;
+          return Boolean(u.password) && (u.id === savedCurrentId || !savedCurrentId);
+        })
+        .map((u) => {
+          if (u.activeGame?.report && Array.isArray(u.activeGame.report.moves)) {
+            return {
+              ...u,
+              activeGame: {
+                ...u.activeGame,
+                report: {
+                  ...u.activeGame.report,
+                  moves: u.activeGame.report.moves.filter(Boolean)
+                }
+              }
+            };
+          }
+          return u;
+        });
 
       if (savedCurrentId && this.users.some(u => u.id === savedCurrentId)) {
         this.currentUserId = savedCurrentId;
@@ -252,7 +268,9 @@ class UserService {
 
         // Reconcile activeGame
         let resolvedActiveGame = existing.activeGame;
-        if (rem.activeGame) {
+        if (!rem.activeGame && remTime >= localTime) {
+          resolvedActiveGame = null;
+        } else if (rem.activeGame) {
           if (!existing.activeGame) {
             resolvedActiveGame = rem.activeGame;
           } else {
@@ -262,6 +280,15 @@ class UserService {
               resolvedActiveGame = rem.activeGame;
             }
           }
+        }
+        if (resolvedActiveGame?.report && Array.isArray(resolvedActiveGame.report.moves)) {
+          resolvedActiveGame = {
+            ...resolvedActiveGame,
+            report: {
+              ...resolvedActiveGame.report,
+              moves: resolvedActiveGame.report.moves.filter(Boolean)
+            }
+          };
         }
 
         const merged: UserProfile = {
