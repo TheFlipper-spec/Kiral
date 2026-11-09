@@ -18,7 +18,7 @@ import {
   Check,
   Trash2
 } from 'lucide-react';
-import { userService } from '../services/userService';
+import { userService, getCountryFlag } from '../services/userService';
 import type { UserProfile } from '../services/userService';
 import { cloudDatabase } from '../services/cloudDatabase';
 import { multiplayerService } from '../services/multiplayerService';
@@ -220,24 +220,24 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
         </div>
 
         {/* Tab Switcher */}
-        <div className="px-3 sm:px-4 pt-2.5 pb-2 border-b border-[#262626] bg-[#141414] grid grid-cols-4 gap-1 sm:gap-1.5">
+        <div className="px-3 sm:px-4 py-2 border-b border-[#262626] bg-[#141414] flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
           <button
             onClick={() => setActiveTab('elo')}
-            className={`py-1.5 px-1.5 rounded text-xs font-mono font-semibold flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+            className={`py-1.5 px-3 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
               activeTab === 'elo'
-                ? 'bg-[#222222] text-[#1baca6] border border-[#333333]'
-                : 'text-[#888888] hover:text-[#CCCCCC]'
+                ? 'bg-[#222222] text-[#1baca6] border border-[#1baca6]/40 shadow-sm'
+                : 'text-[#888888] hover:text-[#CCCCCC] bg-[#181818] border border-transparent'
             }`}
           >
             <Award className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
-            <span className="hidden sm:inline">Топ</span> Эло
+            <span>Топ Эло</span>
           </button>
           <button
             onClick={() => setActiveTab('puzzles')}
-            className={`py-1.5 px-1.5 rounded text-xs font-mono font-semibold flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+            className={`py-1.5 px-3 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
               activeTab === 'puzzles'
-                ? 'bg-[#222222] text-[#96bc4b] border border-[#333333]'
-                : 'text-[#888888] hover:text-[#CCCCCC]'
+                ? 'bg-[#222222] text-[#96bc4b] border border-[#96bc4b]/40 shadow-sm'
+                : 'text-[#888888] hover:text-[#CCCCCC] bg-[#181818] border border-transparent'
             }`}
           >
             <Target className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
@@ -245,25 +245,35 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('friends')}
-            className={`py-1.5 px-1.5 rounded text-xs font-mono font-semibold flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+            className={`py-1.5 px-3 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
               activeTab === 'friends'
-                ? 'bg-[#222222] text-[#f0c15c] border border-[#333333]'
-                : 'text-[#888888] hover:text-[#CCCCCC]'
+                ? 'bg-[#222222] text-[#f0c15c] border border-[#f0c15c]/40 shadow-sm'
+                : 'text-[#888888] hover:text-[#CCCCCC] bg-[#181818] border border-transparent'
             }`}
           >
             <Users className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
-            <span>Друзья ({myFriendsList.length})</span>
+            <span>Друзья</span>
+            {myFriendsList.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-[#f0c15c]/20 text-[#f0c15c] text-[10px] font-bold">
+                {myFriendsList.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`py-1.5 px-1.5 rounded text-xs font-mono font-semibold flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+            className={`py-1.5 px-3 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
               activeTab === 'history'
-                ? 'bg-[#222222] text-[#5c8bb0] border border-[#333333]'
-                : 'text-[#888888] hover:text-[#CCCCCC]'
+                ? 'bg-[#222222] text-[#5c8bb0] border border-[#5c8bb0]/40 shadow-sm'
+                : 'text-[#888888] hover:text-[#CCCCCC] bg-[#181818] border border-transparent'
             }`}
           >
             <History className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
-            <span>История ({userService.getMatchHistory().length})</span>
+            <span>История</span>
+            {userService.getMatchHistory().length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-[#5c8bb0]/20 text-[#5c8bb0] text-[10px] font-bold">
+                {userService.getMatchHistory().length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -537,7 +547,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
               </div>
             ) : (
               <div className="space-y-1.5">
-                <div className="grid grid-cols-[28px_1fr_70px_auto] gap-2 text-[10px] font-mono text-[#666666] uppercase px-3 py-1">
+                <div className="grid grid-cols-[28px_minmax(0,1fr)_65px_auto] gap-2 text-[10px] font-mono text-[#666666] uppercase px-3 py-1 items-center">
                   <span>#</span>
                   <span>Игрок</span>
                   <span className="text-right">Баллы</span>
@@ -549,7 +559,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                     <div
                       key={user.id}
                       onClick={() => onSelectUser && onSelectUser(user)}
-                      className={`grid grid-cols-[28px_1fr_70px_auto] gap-2 items-center px-3 py-2 rounded-lg border text-xs font-mono transition-colors cursor-pointer hover:border-[#1baca6]/40 ${
+                      className={`grid grid-cols-[28px_minmax(0,1fr)_65px_auto] gap-2 items-center px-3 py-2 rounded-lg border text-xs font-mono transition-colors cursor-pointer hover:border-[#1baca6]/40 ${
                         isCurrent
                           ? 'bg-[#182218] border-[#254d31] text-[#EDEDED]'
                           : 'bg-[#151515] border-[#222222] text-[#CCCCCC] hover:bg-[#1A1A1A]'
@@ -567,6 +577,11 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                         )}
                       </span>
                       <div className="flex items-center gap-1.5 truncate">
+                        {user.country && (
+                          <span className="text-xs shrink-0 select-none" title={user.country}>
+                            {getCountryFlag(user.country)}
+                          </span>
+                        )}
                         <span className="font-semibold truncate">{user.username}</span>
                         {isCurrent && (
                           <span className="text-[9px] px-1 py-0.2 rounded bg-[#254d31] text-[#96bc4b] font-bold shrink-0">
@@ -590,7 +605,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
             </div>
           ) : (
             <div className="space-y-1.5">
-              <div className="grid grid-cols-[28px_1fr_60px_65px_auto] gap-2 text-[10px] font-mono text-[#666666] uppercase px-3 py-1">
+              <div className="grid grid-cols-[28px_minmax(0,1fr)_55px_auto] sm:grid-cols-[28px_minmax(0,1fr)_60px_65px_auto] gap-2 text-[10px] font-mono text-[#666666] uppercase px-3 py-1 items-center">
                 <span>#</span>
                 <span>Игрок</span>
                 <span className="text-right">Эло</span>
@@ -603,7 +618,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                   <div
                     key={user.id}
                     onClick={() => onSelectUser && onSelectUser(user)}
-                    className={`grid grid-cols-[28px_1fr_60px_auto] sm:grid-cols-[28px_1fr_60px_65px_auto] gap-2 items-center px-3 py-2 rounded-lg border text-xs font-mono transition-colors cursor-pointer hover:border-[#1baca6]/40 ${
+                    className={`grid grid-cols-[28px_minmax(0,1fr)_55px_auto] sm:grid-cols-[28px_minmax(0,1fr)_60px_65px_auto] gap-2 items-center px-3 py-2 rounded-lg border text-xs font-mono transition-colors cursor-pointer hover:border-[#1baca6]/40 ${
                       isCurrent
                         ? 'bg-[#152026] border-[#1d3d4d] text-[#EDEDED]'
                         : 'bg-[#151515] border-[#222222] text-[#CCCCCC] hover:bg-[#1A1A1A]'
@@ -621,6 +636,11 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                       )}
                     </span>
                     <div className="flex items-center gap-1.5 truncate">
+                      {user.country && (
+                        <span className="text-xs shrink-0 select-none" title={user.country}>
+                          {getCountryFlag(user.country)}
+                        </span>
+                      )}
                       <span className="font-semibold truncate">{user.username}</span>
                       {isCurrent && (
                         <span className="text-[9px] px-1 py-0.2 rounded bg-[#1d3d4d] text-[#1baca6] font-bold shrink-0">
@@ -642,9 +662,13 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
 
         {/* Footer info banner with My Profile trigger */}
         <div className="p-3 border-t border-[#262626] bg-[#0E0E0E] text-[11px] font-mono text-[#888888] flex items-center justify-between gap-2">
-          <div className="truncate">
-            <span>Вы: <strong className="text-[#EDEDED]">{currentUser.username}</strong></span>
-            <span className="ml-2 text-[#1baca6] font-bold">{currentUser.elo} ELO</span>
+          <div className="flex items-center gap-1.5 truncate">
+            <span>Вы:</span>
+            {currentUser.country && (
+              <span className="text-xs shrink-0 select-none">{getCountryFlag(currentUser.country)}</span>
+            )}
+            <strong className="text-[#EDEDED] truncate">{currentUser.username}</strong>
+            <span className="ml-1 text-[#1baca6] font-bold shrink-0">{currentUser.elo} ELO</span>
           </div>
           <button
             onClick={() => {

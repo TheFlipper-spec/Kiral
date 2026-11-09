@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   User,
@@ -11,10 +11,13 @@ import {
   RefreshCw,
   Clock,
   Eye,
-  Check
+  Check,
+  Globe,
+  Camera,
+  Upload
 } from 'lucide-react';
 import type { UserProfile } from '../services/userService';
-import { userService } from '../services/userService';
+import { userService, COUNTRIES, getCountryFlag } from '../services/userService';
 import { multiplayerService } from '../services/multiplayerService';
 import type { LiveGamePresence } from '../services/multiplayerService';
 
@@ -40,6 +43,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [challenged, setChallenged] = useState(false);
   const [liveUser, setLiveUser] = useState<UserProfile | null>(targetUser);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isEditingCountry, setIsEditingCountry] = useState(false);
+  const [isEditingAvatar, setIsEditingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const syncUserFromCloud = async (id: string, fallback: UserProfile) => {
     setIsRefreshing(true);
@@ -54,6 +60,62 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  const handleSelectCountry = (code: string) => {
+    if (!currentUser) return;
+    const updated = userService.updateProfile(currentUser.id, { country: code });
+    if (updated) {
+      setLiveUser({ ...updated });
+      if (onUserChanged) onUserChanged({ ...updated });
+    }
+    setIsEditingCountry(false);
+  };
+
+  const handleSelectAvatarPreset = (symbol: string) => {
+    if (!currentUser) return;
+    // Generate an SVG data URI for crisp rendering
+    const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" fill="#181e22" rx="50"/><text x="50" y="65" font-size="52" text-anchor="middle" dominant-baseline="middle" fill="#1baca6">${symbol}</text></svg>`;
+    const dataUri = `data:image/svg+xml;utf8,${encodeURIComponent(svgStr)}`;
+    const updated = userService.updateProfile(currentUser.id, { avatarUrl: dataUri });
+    if (updated) {
+      setLiveUser({ ...updated });
+      if (onUserChanged) onUserChanged({ ...updated });
+    }
+    setIsEditingAvatar(false);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentUser) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        // Resize image to max 160x160 to keep localStorage compact
+        const canvas = document.createElement('canvas');
+        const size = Math.min(img.width, img.height);
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const sx = (img.width - size) / 2;
+          const sy = (img.height - size) / 2;
+          ctx.drawImage(img, sx, sy, size, size, 0, 0, 128, 128);
+          const resized = canvas.toDataURL('image/jpeg', 0.85);
+          const updated = userService.updateProfile(currentUser.id, { avatarUrl: resized });
+          if (updated) {
+            setLiveUser({ ...updated });
+            if (onUserChanged) onUserChanged({ ...updated });
+          }
+        }
+      };
+      if (typeof reader.result === 'string') {
+        img.src = reader.result;
+      }
+    };
+    reader.readAsDataURL(file);
+    setIsEditingAvatar(false);
   };
 
   useEffect(() => {
@@ -128,12 +190,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         {/* Profile Card */}
         <div className="p-5 flex flex-col items-center text-center">
           {/* Avatar */}
-          <div className="relative mb-3">
+          <div className="relative mb-3 group">
             {displayedUser.avatarUrl ? (
               <img
                 src={displayedUser.avatarUrl}
                 alt={displayedUser.username}
-                className="w-16 h-16 rounded-full border-2 border-[#1baca6] object-cover"
+                className="w-16 h-16 rounded-full border-2 border-[#1baca6] object-cover bg-[#161616]"
               />
             ) : (
               <div className="w-16 h-16 rounded-full bg-[#1C1C1C] border-2 border-[#262626] flex items-center justify-center text-[#1baca6]">
@@ -141,12 +203,30 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               </div>
             )}
             <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-emerald-500 border-2 border-[#121212]" />
+
+            {isMe && (
+              <button
+                onClick={() => setIsEditingAvatar((prev) => !prev)}
+                className="absolute inset-0 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity cursor-pointer"
+                title="Сменить аватарку"
+              >
+                <Camera className="w-5 h-5 text-[#1baca6]" />
+              </button>
+            )}
           </div>
 
-          <h3 className="text-base font-bold text-white font-mono mb-1">
-            {displayedUser.username}
+          <h3 className="text-base font-bold text-white font-mono mb-1 flex items-center justify-center gap-2">
+            {displayedUser.country && (
+              <span
+                className="text-xl leading-none select-none cursor-default"
+                title={COUNTRIES.find((c) => c.code === displayedUser.country)?.nameRu}
+              >
+                {getCountryFlag(displayedUser.country)}
+              </span>
+            )}
+            <span>{displayedUser.username}</span>
           </h3>
-          <span className="text-[11px] font-mono text-[#777777] mb-4">
+          <span className="text-[11px] font-mono text-[#777777] mb-3">
             В игре с {displayedUser.createdAt || 'ноября 2026'}
           </span>
 
@@ -199,9 +279,132 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons */}
+          {/* My Profile Customization Section */}
+          {isMe && (
+            <div className="w-full space-y-3 pt-2 border-t border-[#222222] text-left">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 font-bold block">
+                Настройки профиля
+              </span>
+
+              {/* Country Picker Toggle */}
+              <div className="bg-[#161616] border border-[#262626] rounded-lg p-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-[#1baca6]" />
+                    <span className="text-xs font-mono text-zinc-300">Страна / Флаг:</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsEditingCountry((p) => !p);
+                      setIsEditingAvatar(false);
+                    }}
+                    className="px-2 py-1 rounded bg-[#202020] hover:bg-[#282828] border border-[#333333] text-xs font-mono text-zinc-200 flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <span>{getCountryFlag(displayedUser.country) || '🏳️'}</span>
+                    <span>
+                      {COUNTRIES.find((c) => c.code === displayedUser.country)?.nameRu || 'Выбрать'}
+                    </span>
+                  </button>
+                </div>
+
+                {isEditingCountry && (
+                  <div className="mt-2.5 pt-2 border-t border-[#222222] grid grid-cols-2 xs:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto">
+                    {COUNTRIES.map((c) => {
+                      const isSelected = displayedUser.country === c.code;
+                      return (
+                        <button
+                          key={c.code}
+                          onClick={() => handleSelectCountry(c.code)}
+                          className={`px-2 py-1.5 rounded text-[11px] font-mono flex items-center gap-1.5 transition-colors text-left border ${
+                            isSelected
+                              ? 'bg-[#1baca6]/20 border-[#1baca6] text-white'
+                              : 'bg-[#1A1A1A] border-[#2A2A2A] text-zinc-300 hover:bg-[#222222]'
+                          }`}
+                        >
+                          <span className="text-base">{c.flag}</span>
+                          <span className="truncate">{c.nameRu}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Avatar Picker Toggle */}
+              <div className="bg-[#161616] border border-[#262626] rounded-lg p-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-4 h-4 text-[#1baca6]" />
+                    <span className="text-xs font-mono text-zinc-300">Аватарка:</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-2 py-1 rounded bg-[#202020] hover:bg-[#282828] border border-[#333333] text-xs font-mono text-zinc-300 flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Загрузить изображение с устройства"
+                    >
+                      <Upload className="w-3 h-3 text-[#1baca6]" />
+                      <span>Фото</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsEditingAvatar((p) => !p);
+                        setIsEditingCountry(false);
+                      }}
+                      className="px-2 py-1 rounded bg-[#202020] hover:bg-[#282828] border border-[#333333] text-xs font-mono text-zinc-300 flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <span>Значки</span>
+                    </button>
+                  </div>
+                </div>
+
+                {isEditingAvatar && (
+                  <div className="mt-2.5 pt-2 border-t border-[#222222] space-y-2">
+                    <span className="text-[10px] font-mono text-zinc-500 block">
+                      Выберите шахматный символ:
+                    </span>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[
+                        { symbol: '♚', name: 'Король' },
+                        { symbol: '♛', name: 'Ферзь' },
+                        { symbol: '♞', name: 'Конь' },
+                        { symbol: '♜', name: 'Ладья' },
+                        { symbol: '♝', name: 'Слон' },
+                        { symbol: '👑', name: 'Корона' },
+                        { symbol: '🦅', name: 'Сокол' },
+                        { symbol: '🏆', name: 'Кубок' }
+                      ].map((p) => (
+                        <button
+                          key={p.symbol}
+                          onClick={() => handleSelectAvatarPreset(p.symbol)}
+                          className="flex flex-col items-center justify-center p-2 rounded-lg bg-[#1A1A1A] hover:bg-[#242424] border border-[#2C2C2C] hover:border-[#1baca6] transition-all cursor-pointer group"
+                          title={p.name}
+                        >
+                          <span className="text-xl group-hover:scale-110 transition-transform">
+                            {p.symbol}
+                          </span>
+                          <span className="text-[9px] font-mono text-zinc-400 mt-0.5">
+                            {p.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Action Buttons for Other Players */}
           {!isMe && (
-            <div className="flex flex-col gap-2 w-full">
+            <div className="flex flex-col gap-2 w-full mt-2">
               {liveGame && onSpectateGame && (
                 <button
                   onClick={() => {

@@ -40,10 +40,46 @@ export interface UserProfile {
   };
   authProvider?: 'guest' | 'auth0' | 'custom';
   avatarUrl?: string;
+  country?: string;
   email?: string;
   createdAt: string;
   lastActiveAt?: string;
   activeGame?: ActiveGameSyncData | null;
+}
+
+export interface CountryOption {
+  code: string;
+  nameRu: string;
+  flag: string;
+}
+
+export const COUNTRIES: CountryOption[] = [
+  { code: 'ru', nameRu: 'Россия', flag: '🇷🇺' },
+  { code: 'by', nameRu: 'Беларусь', flag: '🇧🇾' },
+  { code: 'kz', nameRu: 'Казахстан', flag: '🇰🇿' },
+  { code: 'am', nameRu: 'Армения', flag: '🇦🇲' },
+  { code: 'ge', nameRu: 'Грузия', flag: '🇬🇪' },
+  { code: 'uz', nameRu: 'Узбекистан', flag: '🇺🇿' },
+  { code: 'az', nameRu: 'Азербайджан', flag: '🇦🇿' },
+  { code: 'kg', nameRu: 'Кыргызстан', flag: '🇰🇬' },
+  { code: 'md', nameRu: 'Молдова', flag: '🇲🇩' },
+  { code: 'rs', nameRu: 'Сербия', flag: '🇷🇸' },
+  { code: 'de', nameRu: 'Германия', flag: '🇩🇪' },
+  { code: 'fr', nameRu: 'Франция', flag: '🇫🇷' },
+  { code: 'es', nameRu: 'Испания', flag: '🇪🇸' },
+  { code: 'it', nameRu: 'Италия', flag: '🇮🇹' },
+  { code: 'us', nameRu: 'США', flag: '🇺🇸' },
+  { code: 'ca', nameRu: 'Канада', flag: '🇨🇦' },
+  { code: 'cn', nameRu: 'Китай', flag: '🇨🇳' },
+  { code: 'in', nameRu: 'Индия', flag: '🇮🇳' },
+  { code: 'br', nameRu: 'Бразилия', flag: '🇧🇷' },
+  { code: 'tr', nameRu: 'Турция', flag: '🇹🇷' }
+];
+
+export function getCountryFlag(countryCode?: string): string {
+  if (!countryCode) return '';
+  const found = COUNTRIES.find((c) => c.code.toLowerCase() === countryCode.toLowerCase());
+  return found ? found.flag : '';
 }
 
 const STORAGE_USERS_KEY = 'kiral_real_chess_users_v3';
@@ -368,6 +404,21 @@ class UserService {
 
   public getUserById(userId: string): UserProfile | undefined {
     return this.users.find(u => u.id === userId) || this.cloudPlayers.find(u => u.id === userId);
+  }
+
+  public updateProfile(userId: string, updates: Partial<UserProfile>): UserProfile | null {
+    const user = this.users.find(u => u.id === userId);
+    if (!user) return null;
+
+    if (updates.country !== undefined) user.country = updates.country;
+    if (updates.avatarUrl !== undefined) user.avatarUrl = updates.avatarUrl;
+    if (updates.username !== undefined && updates.username.trim()) user.username = updates.username.trim();
+
+    this.saveUsers();
+    this.notifyListeners();
+
+    cloudDatabase.syncPlayer(user).catch(() => {});
+    return user;
   }
 
   public getFriendshipStatus(

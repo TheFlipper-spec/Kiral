@@ -36,6 +36,8 @@ import {
   HelpCircle
 } from 'lucide-react';
 
+import { getCountryFlag } from '../services/userService';
+
 export interface MoveAccentInfo {
   classification: MoveClassification;
   nameRu: string;
@@ -52,6 +54,8 @@ export interface BoardPlayerBarInfo {
   color: 'w' | 'b';
   timeRemaining?: number | null;
   isTurn?: boolean;
+  country?: string;
+  avatarUrl?: string;
 }
 
 export interface CapturedPiecesSummary {
@@ -667,6 +671,11 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             ) : (
               <User className="w-3.5 h-3.5 text-[#888888] shrink-0" />
             )}
+            {topPlayer.country && (
+              <span className="text-xs leading-none shrink-0" title={topPlayer.country}>
+                {getCountryFlag(topPlayer.country)}
+              </span>
+            )}
             <span className="font-semibold text-[#EDEDED] truncate max-w-[90px] sm:max-w-[150px]">
               {topPlayer.name}
             </span>
@@ -1121,6 +1130,11 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               }`}
             />
             <User className="w-3.5 h-3.5 text-[#1baca6] shrink-0" />
+            {bottomPlayer.country && (
+              <span className="text-xs leading-none shrink-0" title={bottomPlayer.country}>
+                {getCountryFlag(bottomPlayer.country)}
+              </span>
+            )}
             <span className="font-semibold text-[#EDEDED] truncate max-w-[90px] sm:max-w-[150px]">
               {bottomPlayer.name}
             </span>

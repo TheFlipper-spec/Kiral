@@ -24,7 +24,8 @@ import { MatchmakingModal } from './components/MatchmakingModal';
 import { UserProfileModal } from './components/UserProfileModal';
 import { multiplayerService } from './services/multiplayerService';
 import type { RankedMatchSession, MovePayload, DirectChallengePayload, LiveGamePresence } from './services/multiplayerService';
-import { Swords, RotateCw, Handshake } from 'lucide-react';
+import { Swords, RotateCw, Handshake, Flag, Volume2, VolumeX, Undo2, Activity, Upload } from 'lucide-react';
+import { neuralVoice } from './services/neuralVoiceService';
 import { userService } from './services/userService';
 import type { UserProfile, ActiveGameSyncData } from './services/userService';
 import { cloudDatabase } from './services/cloudDatabase';
@@ -750,7 +751,12 @@ export const App: React.FC = () => {
         if (isCheck) {
           voiceAnnouncement += ', Шах!';
         }
-        sound.speak(voiceAnnouncement);
+        const tactics = neuralVoice.analyzeTactics(fenBefore, fenAfter, moveUci, classResult.classification);
+        if (tactics) {
+          neuralVoice.announceTactics(tactics);
+        } else {
+          sound.speak(voiceAnnouncement);
+        }
       }
 
       return evalAfterObj;
@@ -1166,6 +1172,12 @@ export const App: React.FC = () => {
       sound.playCheck();
     } else {
       sound.playMove();
+    }
+
+    const liveMoveUci = `${sourceSquare}${targetSquare}${moveResult.promotion || ''}`;
+    const liveTactics = neuralVoice.analyzeTactics(currentBoardFen, newFen, liveMoveUci);
+    if (liveTactics && (liveTactics.type === 'checkmate' || liveTactics.type === 'fork')) {
+      neuralVoice.announceTactics(liveTactics);
     }
 
     if (gameMode === 'ranked' && activeRankedSession?.isOnlinePvP) {
@@ -1587,6 +1599,48 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [gameMode, handleUndoMove]);
 
+  const buildPgnFromFens = (
+    fensList: string[],
+    whiteName: string,
+    blackName: string,
+    resResult: 'win' | 'loss' | 'draw' | string,
+    dateStr?: string
+  ): string => {
+    if (!fensList || fensList.length < 2) return '';
+    try {
+      const moves: string[] = [];
+      for (let i = 1; i < fensList.length; i++) {
+        const prevFen = fensList[i - 1];
+        const nextFen = fensList[i];
+        const tempChess = new Chess(prevFen);
+        const legalMoves = tempChess.moves({ verbose: true });
+        const nextBoardPlacement = nextFen.split(' ')[0];
+        const matched = legalMoves.find((m) => {
+          const test = new Chess(prevFen);
+          test.move(m);
+          return test.fen().split(' ')[0] === nextBoardPlacement;
+        });
+        if (matched) {
+          moves.push(matched.san);
+        }
+      }
+      const resultTag = resResult === 'win' ? '1-0' : resResult === 'loss' ? '0-1' : resResult === 'draw' ? '1/2-1/2' : '*';
+      const d = dateStr || new Date().toISOString().slice(0, 10).replace(/-/g, '.');
+      let pgn = `[Event "Kiral Match"]\n[Site "Kiral Platform"]\n[Date "${d}"]\n[White "${whiteName}"]\n[Black "${blackName}"]\n[Result "${resultTag}"]\n\n`;
+      for (let i = 0; i < moves.length; i++) {
+        if (i % 2 === 0) {
+          pgn += `${Math.floor(i / 2) + 1}. ${moves[i]} `;
+        } else {
+          pgn += `${moves[i]} `;
+        }
+      }
+      pgn += resultTag;
+      return pgn.trim();
+    } catch {
+      return '';
+    }
+  };
+
   const recordMatchEnd = useCallback(
     (
       mode: 'ranked' | 'vs-ai' | 'pvp',
@@ -1599,6 +1653,10 @@ export const App: React.FC = () => {
     ) => {
       const matchFens = customFens || fensRef.current;
       const tc = TIME_CONTROLS.find((t) => t.id === activeTimeControlId);
+      const whitePlayer = playerColor === 'w' ? currentUser.username : oppName;
+      const blackPlayer = playerColor === 'w' ? oppName : currentUser.username;
+      const realPgn = buildPgnFromFens(matchFens, whitePlayer, blackPlayer, res);
+
       userService.recordMatchHistory({
         id: `match_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         date: new Date().toISOString().slice(0, 10),
@@ -1612,11 +1670,11 @@ export const App: React.FC = () => {
         accuracy: report ? (playerColor === 'w' ? report.whiteAccuracy : report.blackAccuracy) : undefined,
         movesCount: Math.floor(matchFens.length / 2),
         fens: [...matchFens],
-        pgn: currentPgn || undefined,
+        pgn: realPgn || undefined,
         reason: reasonVal
       });
     },
-    [activeTimeControlId, playerColor, report, currentPgn]
+    [activeTimeControlId, playerColor, report, currentUser.username]
   );
 
   const handleOpponentOnlineMove = useCallback(
@@ -2512,18 +2570,28 @@ export const App: React.FC = () => {
     const resultLabel = match.result === 'win' ? 'Победа' : match.result === 'loss' ? 'Поражение' : 'Ничья';
     setGameOverMessage(`${resultLabel} (${match.reason || ''})`);
 
-    if (match.fens && match.fens.length > 0) {
-      fensRef.current = match.fens;
-      setFens(match.fens);
-      const lastPly = match.fens.length - 1;
-      setCurrentPly(lastPly);
-      currentPlyRef.current = lastPly;
+    const whitePlayer = match.myColor === 'w' ? currentUser.username : match.opponentName;
+    const blackPlayer = match.myColor === 'w' ? match.opponentName : currentUser.username;
+    let targetPgn = match.pgn && !match.pgn.includes('Topalov') ? match.pgn : '';
+    if (!targetPgn && match.fens && match.fens.length > 1) {
+      targetPgn = buildPgnFromFens(match.fens, whitePlayer, blackPlayer, match.result, match.date);
+    }
+    if (!targetPgn && match.pgn) {
+      targetPgn = match.pgn;
     }
 
-    if (match.pgn) {
-      setCurrentPgn(match.pgn);
-      loadPgnIntoState(match.pgn, `Архив: ${match.opponentName}`);
-      runAnalysis(match.pgn, analysisDepth);
+    const title = `${whitePlayer} vs ${blackPlayer}`;
+    setGameTitle(title);
+
+    if (targetPgn) {
+      setCurrentPgn(targetPgn);
+      loadPgnIntoState(targetPgn, title);
+      runAnalysis(targetPgn, analysisDepth);
+    } else if (match.fens && match.fens.length > 0) {
+      fensRef.current = match.fens;
+      setFens(match.fens);
+      setCurrentPly(0);
+      currentPlyRef.current = 0;
     }
 
     if (openMistakes) {
@@ -2531,7 +2599,7 @@ export const App: React.FC = () => {
         handleStartMistakeReplay();
       }, 400);
     }
-  }, [analysisDepth, handleStartMistakeReplay, loadPgnIntoState, runAnalysis]);
+  }, [analysisDepth, currentUser.username, handleStartMistakeReplay, loadPgnIntoState, runAnalysis]);
 
   const handleChangeMode = (newMode: GameMode) => {
     gameAnalyzer.cancel();
@@ -2710,7 +2778,9 @@ export const App: React.FC = () => {
         isAi: activeRankedSession.opponent.isAi,
         color: opponentColor,
         timeRemaining: isClockActive ? (opponentColor === 'w' ? whiteTime : blackTime) : null,
-        isTurn: !gameOverMessage && currentTurnColor === opponentColor
+        isTurn: !gameOverMessage && currentTurnColor === opponentColor,
+        country: (activeRankedSession.opponent as any).country,
+        avatarUrl: (activeRankedSession.opponent as any).avatarUrl
       };
     }
     if (gameMode === 'vs-ai') {
@@ -2779,7 +2849,9 @@ export const App: React.FC = () => {
       isAi: false,
       color: myColor,
       timeRemaining: isClockActive ? (myColor === 'w' ? whiteTime : blackTime) : null,
-      isTurn: !gameOverMessage && currentTurnColor === myColor
+      isTurn: !gameOverMessage && currentTurnColor === myColor,
+      country: currentUser.country,
+      avatarUrl: currentUser.avatarUrl
     };
   })();
 
@@ -2956,7 +3028,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      <main className="flex-1 w-full max-w-[1440px] mx-auto grid grid-cols-1 grid-rows-[auto_1fr] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[minmax(0,1fr)_440px] xl:grid-cols-[minmax(0,1fr)_470px] lg:gap-4 xl:gap-6 lg:px-4 xl:px-6 lg:py-2.5 overflow-hidden">
+      <main className="flex-1 w-full max-w-[1440px] mx-auto grid grid-cols-1 grid-rows-[auto_auto] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[minmax(0,1fr)_440px] xl:grid-cols-[minmax(0,1fr)_470px] lg:gap-4 xl:gap-6 lg:px-4 xl:px-6 lg:py-2.5 overflow-y-auto lg:overflow-hidden">
         <section className="relative h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A] px-1 py-1 sm:p-2">
           <ChessboardArea
             fen={currentFen}
@@ -3023,7 +3095,7 @@ export const App: React.FC = () => {
           />
         </section>
 
-        <section className={`h-full overflow-hidden lg:rounded-xl lg:border lg:border-[#262626] lg:shadow-2xl ${!isAnalysisEnabled ? 'hidden lg:block' : ''}`}>
+        <section className="h-full overflow-hidden lg:rounded-xl lg:border lg:border-[#262626] lg:shadow-2xl">
           {gameMode === 'learn' || gameMode === 'puzzles' ? (
             <LearnPanel
               activeTab={activeLearnTab}
@@ -3053,6 +3125,133 @@ export const App: React.FC = () => {
               onOpeningStepChange={handleOpeningStepChange}
               onResetOpening={handleResetOpening}
             />
+          ) : !isAnalysisEnabled ? (
+            <>
+              {/* Desktop Zen Mode View */}
+              <div className="hidden lg:block h-full">
+                <AnalysisPanel
+                  report={report}
+                  currentPly={currentPly}
+                  onSelectPly={handleSelectPly}
+                  progress={progress}
+                  isAnalyzing={isAnalyzing}
+                  onCancelAnalysis={() => gameAnalyzer.cancel()}
+                  isPreviewingLine={isPreviewingLine}
+                  onTogglePreviewLine={handleTogglePreviewLine}
+                  hideEngineHints={false}
+                  mistakeCount={playerMistakes.length}
+                  onStartMistakeReplay={handleStartMistakeReplay}
+                  isAnalysisEnabled={false}
+                  onToggleAnalysis={handleToggleAnalysis}
+                  onOpenLoadModal={gameMode === 'review' ? () => setIsLoadModalOpen(true) : undefined}
+                />
+              </div>
+
+              {/* Mobile Game Controls Dock (Replaces empty void on phones when analysis is OFF) */}
+              <div className="block lg:hidden p-3 bg-[#111111] border-t border-[#262626] rounded-t-xl space-y-2.5 select-none font-mono">
+                {/* Top status bar */}
+                <div className="flex items-center justify-between px-2.5 py-1.5 bg-[#181818] border border-[#2A2A2A] rounded-md text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${currentPly % 2 === 0 ? 'bg-white border border-zinc-400' : 'bg-zinc-800 border border-zinc-600'}`} />
+                    <span className="text-zinc-200 font-semibold text-[11px]">
+                      {currentPly % 2 === 0 ? 'Ход белых' : 'Ход черных'} • Ход {Math.floor(currentPly / 2) + 1}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleToggleAnalysis}
+                    className="px-2 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-[#1baca6] text-[11px] font-bold flex items-center gap-1 transition-colors"
+                    title="Включить анализ движком"
+                  >
+                    <Activity className="w-3 h-3" />
+                    <span>Вкл. анализ</span>
+                  </button>
+                </div>
+
+                {/* Action Buttons Grid */}
+                <div className="grid grid-cols-4 gap-1.5">
+                  <button
+                    onClick={handleResignCurrentGame}
+                    disabled={Boolean(gameOverMessage) || fens.length <= 1}
+                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] disabled:opacity-40 flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    title="Сдаться в текущей партии"
+                  >
+                    <Flag className="w-4 h-4 text-rose-400" />
+                    <span>Сдаться</span>
+                  </button>
+
+                  <button
+                    onClick={handleOfferDraw}
+                    disabled={Boolean(gameOverMessage) || fens.length <= 4}
+                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] disabled:opacity-40 flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    title="Предложить ничью"
+                  >
+                    <Handshake className="w-4 h-4 text-amber-400" />
+                    <span>Ничья</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsFlipped((prev) => !prev)}
+                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    title="Перевернуть доску"
+                  >
+                    <RotateCw className="w-4 h-4 text-[#1baca6]" />
+                    <span>Разворот</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSoundEnabled(!soundEnabled);
+                      sound.enabled = !soundEnabled;
+                    }}
+                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    title="Звук"
+                  >
+                    {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-zinc-500" />}
+                    <span>{soundEnabled ? 'Звук: Вкл' : 'Звук: Выкл'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleUndoMove}
+                    disabled={!canUndoMove}
+                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] disabled:opacity-40 flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    title="Отменить ход"
+                  >
+                    <Undo2 className="w-4 h-4 text-indigo-400" />
+                    <span>Отмена</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleReset()}
+                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    title="Новая партия"
+                  >
+                    <RotateCw className="w-4 h-4 text-zinc-400" />
+                    <span>Заново</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsLoadModalOpen(true)}
+                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    title="Загрузить PGN или FEN"
+                  >
+                    <Upload className="w-4 h-4 text-zinc-300" />
+                    <span>PGN/FEN</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setLeaderboardTab('history');
+                      setIsLeaderboardOpen(true);
+                    }}
+                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    title="История сыгранных партий"
+                  >
+                    <Swords className="w-4 h-4 text-amber-300" />
+                    <span>История</span>
+                  </button>
+                </div>
+              </div>
+            </>
           ) : (
             <AnalysisPanel
               report={report}

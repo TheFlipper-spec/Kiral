@@ -65,14 +65,14 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
   return (
     <div className="flex flex-col h-full bg-[#121212] border-l border-[#262626] select-none text-[#EDEDED] font-sans">
       {/* Top Header */}
-      <div className="p-4 border-b border-[#262626] bg-[#0E0E0E] flex items-center justify-between">
+      <div className="p-2.5 sm:p-4 border-b border-[#262626] bg-[#0E0E0E] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Target className="w-4 h-4 text-[#1baca6]" strokeWidth={1.5} />
-          <span className="font-mono text-sm font-bold tracking-tight">
+          <span className="font-mono text-xs sm:text-sm font-bold tracking-tight">
             Шахматные Задачи
           </span>
         </div>
-        <div className="flex items-center gap-2 text-xs font-mono text-[#888888]">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-mono text-[#888888]">
           <span>Решено:</span>
           <span className="font-bold text-[#96bc4b]">{solvedCount}</span>
           <span>/</span>
@@ -81,14 +81,14 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
       </div>
 
       {/* Difficulty Filter Tabs */}
-      <div className="px-4 py-2 border-b border-[#262626] bg-[#141414] flex items-center justify-between text-xs font-mono">
-        <span className="text-[#666666] text-[11px] uppercase tracking-wider">Фильтр:</span>
+      <div className="px-2.5 py-1.5 sm:px-4 sm:py-2 border-b border-[#262626] bg-[#141414] flex items-center justify-between text-xs font-mono">
+        <span className="text-[#666666] text-[10px] sm:text-[11px] uppercase tracking-wider">Фильтр:</span>
         <div className="flex items-center gap-1">
           {(['all', 'easy', 'medium', 'hard'] as const).map((lvl) => (
             <button
               key={lvl}
               onClick={() => onChangeFilter(lvl)}
-              className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+              className={`px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] transition-colors ${
                 filterDifficulty === lvl
                   ? 'bg-[#262626] text-white font-semibold'
                   : 'text-[#777777] hover:text-[#CCCCCC]'
@@ -100,12 +100,12 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
         </div>
       </div>
 
-      {/* Main Content Area (Scrollable) */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 font-sans text-xs">
+      {/* Main Content Area (Scrollable & auto-expanding) */}
+      <div className="flex-1 overflow-y-auto p-2.5 sm:p-4 space-y-2.5 sm:space-y-4 font-sans text-xs">
         {/* Puzzle Card Info */}
-        <div className="p-3 bg-[#161616] border border-[#262626] rounded-md space-y-2">
+        <div className="p-2.5 sm:p-3 bg-[#161616] border border-[#262626] rounded-md space-y-1.5 sm:space-y-2">
           <div className="flex items-center justify-between">
-            <span className="font-mono text-sm font-bold text-white">
+            <span className="font-mono text-xs sm:text-sm font-bold text-white">
               {puzzle.title}
             </span>
             <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-[#1F1F1F] text-[#AAAAAA] border border-[#2E2E2E]">
@@ -113,7 +113,7 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] text-[#888888]">
+          <div className="flex items-center gap-2 text-[10px] sm:text-[11px] text-[#888888]">
             <span className="px-1.5 py-0.5 rounded bg-[#202020] text-[#1baca6] font-mono">
               {puzzle.theme}
             </span>
@@ -129,12 +129,12 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
           </div>
         </div>
 
-        {/* Interactive Coach Briefing Card */}
-        <div className="p-3 bg-[#15191C] border border-[#1baca6]/35 rounded-md space-y-2">
+        {/* Interactive Coach Briefing Card (Fully visible without clipping) */}
+        <div className="p-2.5 sm:p-3 bg-[#15191C] border border-[#1baca6]/35 rounded-md space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-[#1baca6] font-mono text-xs font-bold">
               <GraduationCap className="w-4 h-4 shrink-0" strokeWidth={1.5} />
-              <span>Тренер Kiral: разбор позиции</span>
+              <span>Разбор позиции</span>
             </div>
             <button
               onClick={() =>
@@ -153,7 +153,7 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
               <span>Озвучить</span>
             </button>
           </div>
-          <p className="text-[11px] text-[#CCCCCC] leading-relaxed">
+          <p className="text-[11px] sm:text-xs text-[#E0E0E0] leading-relaxed whitespace-normal break-words">
             {puzzle.coachBrief ||
               `Тема задачи — «${puzzle.theme}». Оцените слабые поля в лагере соперника и найдите форсированное продолжение.`}
           </p>
@@ -276,7 +276,7 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-[#1baca6]" />
               Тактическое объяснение
             </span>
-            <p className="text-[11px] text-[#AAAAAA] leading-relaxed">
+            <p className="text-[11px] sm:text-xs text-[#CCCCCC] leading-relaxed whitespace-normal break-words">
               {puzzle.explanation}
             </p>
             <div className="pt-1 border-t border-[#222222] flex items-center gap-1.5 text-[10px] font-mono text-[#777777]">
@@ -290,7 +290,7 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
       </div>
 
       {/* Bottom Action Bar */}
-      <div className="p-4 border-t border-[#262626] bg-[#0E0E0E] flex flex-col gap-2">
+      <div className="p-2.5 sm:p-4 border-t border-[#262626] bg-[#0E0E0E] flex flex-col gap-1.5 sm:gap-2">
         {status === 'solved' ? (
           <button
             onClick={onNextPuzzle}

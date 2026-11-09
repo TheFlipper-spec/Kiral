@@ -2,6 +2,7 @@ import React from 'react';
 import { BookOpen, Swords, Users, Trophy, User, GraduationCap } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
+import { getCountryFlag } from '../services/userService';
 import type { ScoreDeltaData } from './ScoreDeltaNotification';
 
 export type GameMode = 'review' | 'vs-ai' | 'pvp' | 'puzzles' | 'ranked' | 'learn';
@@ -263,6 +264,11 @@ export const Header: React.FC<HeaderProps> = ({
                   />
                 ) : (
                   <User className="w-3.5 h-3.5 text-[#1baca6] shrink-0" strokeWidth={1.5} />
+                )}
+                {currentUser.country && (
+                  <span className="text-xs leading-none shrink-0" title={currentUser.country}>
+                    {getCountryFlag(currentUser.country)}
+                  </span>
                 )}
                 <span className="font-semibold text-white truncate max-w-[68px] sm:max-w-[100px]">
                   {currentUser.username}

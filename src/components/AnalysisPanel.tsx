@@ -82,16 +82,6 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {onToggleAnalysis && (
-              <button
-                onClick={onToggleAnalysis}
-                className="px-2 py-1 rounded text-[11px] font-mono transition-colors flex items-center gap-1 border bg-[#181818] text-[#777777] border-[#2a2a2a] hover:text-[#EDEDED] hover:border-[#444]"
-                title="Нажмите, чтобы включить анализ Stockfish и оценку"
-              >
-                <Activity className="w-3 h-3 shrink-0" strokeWidth={1.5} />
-                <span>Анализ: Выкл</span>
-              </button>
-            )}
             {onOpenLoadModal && (
               <button
                 onClick={onOpenLoadModal}
@@ -257,24 +247,6 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {onToggleAnalysis && (
-            <button
-              onClick={onToggleAnalysis}
-              className={`px-2 py-1 rounded text-[11px] font-mono transition-colors flex items-center gap-1 border ${
-                isAnalysisEnabled
-                  ? 'bg-[#1baca6]/15 text-[#1baca6] border-[#1baca6]/40 hover:bg-[#1baca6]/25'
-                  : 'bg-[#181818] text-[#777777] border-[#2a2a2a] hover:text-[#EDEDED]'
-              }`}
-              title={
-                isAnalysisEnabled
-                  ? 'Анализ ходов включен (нажмите, чтобы отключить)'
-                  : 'Анализ ходов отключен (нажмите, чтобы включить)'
-              }
-            >
-              <Activity className="w-3 h-3 shrink-0" strokeWidth={1.5} />
-              <span>{isAnalysisEnabled ? 'Анализ: Вкл' : 'Анализ: Выкл'}</span>
-            </button>
-          )}
           {onOpenLoadModal && (
             <button
               onClick={onOpenLoadModal}
