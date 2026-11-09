@@ -80,18 +80,18 @@ body {
 /* Intelligent Responsive Board Sizing: maximally fills space without viewport leaks */
 .kiral-board-container {
   width: 100%;
-  max-width: min(96vw, calc(100vh - 185px));
+  max-width: min(96vw, calc(100vh - 195px));
 }
 
 @media (min-width: 1024px) {
   .kiral-board-container {
-    max-width: min(calc(100vw - 490px), calc(100vh - 165px));
+    max-width: min(calc(100vw - 490px), calc(100vh - 215px));
   }
 }
 
 @media (min-width: 1440px) {
   .kiral-board-container {
-    max-width: min(calc(100vw - 530px), calc(100vh - 160px));
+    max-width: min(calc(100vw - 530px), calc(100vh - 210px));
   }
 }
 
