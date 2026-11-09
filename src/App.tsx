@@ -325,8 +325,29 @@ export const App: React.FC = () => {
           sound.playMove();
         }
       }
+
+      // Voice speech synthesis in match analysis and review
+      if (isAnalysisEnabled && (gameMode === 'review' || Boolean(gameOverMessage) || isMistakeReplayActive)) {
+        const statusMap: Record<string, string> = {
+          blunder: 'Грубая ошибка.',
+          mistake: 'Ошибка.',
+          miss: 'Упущен шанс.',
+          inaccuracy: 'Неточность.',
+          book: 'Теоретический ход.',
+          best: 'Лучший ход.',
+          excellent: 'Отличный ход.',
+          great: 'Замечательный ход.',
+          brilliant: 'Блестящая жертва!'
+        };
+        const prefix = statusMap[move.classification] || '';
+        if (prefix) {
+          const firstSentence = move.classificationReason ? move.classificationReason.split('.')[0] : '';
+          const voiceAnnouncement = `${prefix} ${firstSentence ? firstSentence + '.' : ''}`;
+          sound.speak(voiceAnnouncement);
+        }
+      }
     },
-    [soundEnabled, report, fens]
+    [soundEnabled, report, fens, isAnalysisEnabled, gameMode, gameOverMessage, isMistakeReplayActive]
   );
 
   const handleSelectPly = useCallback(
@@ -3028,7 +3049,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      <main className="flex-1 w-full max-w-[1440px] mx-auto grid grid-cols-1 grid-rows-[auto_auto] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[minmax(0,1fr)_440px] xl:grid-cols-[minmax(0,1fr)_470px] lg:gap-4 xl:gap-6 lg:px-4 xl:px-6 lg:py-2.5 overflow-y-auto lg:overflow-hidden">
+      <main className="flex-1 w-full max-w-none mx-auto grid grid-cols-1 grid-rows-[auto_auto] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[minmax(0,1fr)_430px] xl:grid-cols-[minmax(0,1fr)_470px] lg:gap-0 lg:pl-3 lg:pr-0 lg:py-0 overflow-y-auto lg:overflow-hidden">
         <section className="relative h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A] px-1 py-1 sm:p-2">
           <ChessboardArea
             fen={currentFen}
@@ -3095,7 +3116,7 @@ export const App: React.FC = () => {
           />
         </section>
 
-        <section className="h-full overflow-hidden lg:rounded-xl lg:border lg:border-[#262626] lg:shadow-2xl">
+        <section className="h-full overflow-hidden lg:border-l lg:border-[#262626] bg-[#0E0E0E]">
           {gameMode === 'learn' || gameMode === 'puzzles' ? (
             <LearnPanel
               activeTab={activeLearnTab}
@@ -3144,6 +3165,12 @@ export const App: React.FC = () => {
                   isAnalysisEnabled={false}
                   onToggleAnalysis={handleToggleAnalysis}
                   onOpenLoadModal={gameMode === 'review' ? () => setIsLoadModalOpen(true) : undefined}
+                  activeMistake={activeMistake}
+                  onNextMistake={handleNextMistake}
+                  onRevealMistakePieceHint={handleRevealMistakePieceHint}
+                  onRevealMistakeSolution={handleRevealMistakeSolution}
+                  onExitMistakeReplay={handleExitMistakeReplay}
+                  isGameOver={Boolean(gameOverMessage)}
                 />
               </div>
 
@@ -3268,6 +3295,12 @@ export const App: React.FC = () => {
               isAnalysisEnabled={isAnalysisEnabled}
               onToggleAnalysis={handleToggleAnalysis}
               onOpenLoadModal={gameMode === 'review' ? () => setIsLoadModalOpen(true) : undefined}
+              activeMistake={activeMistake}
+              onNextMistake={handleNextMistake}
+              onRevealMistakePieceHint={handleRevealMistakePieceHint}
+              onRevealMistakeSolution={handleRevealMistakeSolution}
+              onExitMistakeReplay={handleExitMistakeReplay}
+              isGameOver={Boolean(gameOverMessage)}
             />
           )}
         </section>

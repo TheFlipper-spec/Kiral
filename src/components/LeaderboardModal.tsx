@@ -18,7 +18,8 @@ import {
   Check,
   Trash2
 } from 'lucide-react';
-import { userService, getCountryFlag } from '../services/userService';
+import { userService } from '../services/userService';
+import { CountryFlag } from './CountryFlag';
 import type { UserProfile } from '../services/userService';
 import { cloudDatabase } from '../services/cloudDatabase';
 import { multiplayerService } from '../services/multiplayerService';
@@ -578,9 +579,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                       </span>
                       <div className="flex items-center gap-1.5 truncate">
                         {user.country && (
-                          <span className="text-xs shrink-0 select-none" title={user.country}>
-                            {getCountryFlag(user.country)}
-                          </span>
+                          <CountryFlag code={user.country} className="w-4 h-3 shrink-0" />
                         )}
                         <span className="font-semibold truncate">{user.username}</span>
                         {isCurrent && (
@@ -637,9 +636,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
                     </span>
                     <div className="flex items-center gap-1.5 truncate">
                       {user.country && (
-                        <span className="text-xs shrink-0 select-none" title={user.country}>
-                          {getCountryFlag(user.country)}
-                        </span>
+                        <CountryFlag code={user.country} className="w-4 h-3 shrink-0" />
                       )}
                       <span className="font-semibold truncate">{user.username}</span>
                       {isCurrent && (
@@ -665,7 +662,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
           <div className="flex items-center gap-1.5 truncate">
             <span>Вы:</span>
             {currentUser.country && (
-              <span className="text-xs shrink-0 select-none">{getCountryFlag(currentUser.country)}</span>
+              <CountryFlag code={currentUser.country} className="w-4 h-3 shrink-0" />
             )}
             <strong className="text-[#EDEDED] truncate">{currentUser.username}</strong>
             <span className="ml-1 text-[#1baca6] font-bold shrink-0">{currentUser.elo} ELO</span>

@@ -10,9 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronLast,
-  ChevronUp,
-  ChevronDown,
-  ArrowRight,
   Play,
   Pause,
   RotateCcw,
@@ -29,14 +26,10 @@ import {
   Undo2,
   Handshake,
   X,
-  Target,
-  Lightbulb,
-  CheckCircle2,
-  AlertCircle,
-  HelpCircle
+  Target
 } from 'lucide-react';
 
-import { getCountryFlag } from '../services/userService';
+import { CountryFlag } from './CountryFlag';
 
 export interface MoveAccentInfo {
   classification: MoveClassification;
@@ -214,10 +207,10 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   mistakeCount = 0,
   onStartMistakeReplay,
   activeMistake = null,
-  onNextMistake,
-  onRevealMistakePieceHint,
-  onRevealMistakeSolution,
-  onExitMistakeReplay,
+  onNextMistake: _onNextMistake,
+  onRevealMistakePieceHint: _onRevealMistakePieceHint,
+  onRevealMistakeSolution: _onRevealMistakeSolution,
+  onExitMistakeReplay: _onExitMistakeReplay,
   timeControlBadge,
   isAnalysisEnabled = true,
   isSpectating = false,
@@ -231,7 +224,6 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [isDismissedGameOver, setIsDismissedGameOver] = useState<boolean>(false);
   const [mistakeMode, setMistakeMode] = useState<'review' | 'solve'>('review');
-  const [isMistakeCardCollapsed, setIsMistakeCardCollapsed] = useState<boolean>(false);
   const [pendingPromotion, setPendingPromotion] = useState<{
     sourceSquare: string;
     targetSquare: string;
@@ -654,7 +646,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   const bottomAdvantage = bottomPlayer ? (bottomPlayer.color === 'w' ? capturedSummary.whiteAdvantage : capturedSummary.blackAdvantage) : 0;
 
   return (
-    <div className="flex flex-col items-center justify-between sm:justify-center px-1 sm:px-2 py-0.5 sm:py-1 select-none h-full w-full overflow-hidden">
+    <div className="flex flex-col items-center justify-center px-1 sm:px-2 py-0.5 select-none h-full w-full min-h-0">
       {/* Top Player / Opponent Bar */}
       {topPlayer && (
         <div className={`${boardWidthClass} mb-0.5 sm:mb-1 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0`}>
@@ -672,11 +664,9 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               <User className="w-3.5 h-3.5 text-[#888888] shrink-0" />
             )}
             {topPlayer.country && (
-              <span className="text-xs leading-none shrink-0" title={topPlayer.country}>
-                {getCountryFlag(topPlayer.country)}
-              </span>
+              <CountryFlag code={topPlayer.country} className="w-4 h-3 shrink-0" />
             )}
-            <span className="font-semibold text-[#EDEDED] truncate max-w-[90px] sm:max-w-[150px]">
+            <span className="font-semibold text-[#EDEDED] truncate max-w-[140px] xs:max-w-[180px] sm:max-w-[260px]">
               {topPlayer.name}
             </span>
             {typeof topPlayer.elo === 'number' && (
@@ -773,7 +763,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
         </div>
       )}
 
-      {/* Board & Eval Bar Container (pixel-aligned height) */}
+      {/* Board, Eval Bar & Landscape Side Controls */}
       <div className={`flex items-stretch ${isAnalysisEnabled ? 'gap-1.5 sm:gap-2.5' : ''} ${boardWidthClass} relative shrink-0`}>
         {/* Vertical Eval Bar */}
         {isAnalysisEnabled && <EvalBar evalCp={evalCp} mate={mate} flipped={isFlipped} />}
@@ -1116,6 +1106,75 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             </div>
           )}
         </div>
+
+        {/* Mobile Landscape Side Action Column (replaces bottom bar on phone landscape) */}
+        <div className="hidden max-lg:landscape:flex flex-col items-center justify-center gap-1 ml-2 py-1.5 px-1 bg-[#121212] border border-[#262626] rounded-md text-[#CCCCCC] text-[11px] font-mono shrink-0 shadow-lg select-none">
+          <button
+            onClick={onGoToStart}
+            disabled={currentPly <= 0}
+            className="p-1 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 transition-colors"
+            title="В начало (Home)"
+          >
+            <ChevronFirst className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onGoToPrev}
+            disabled={currentPly <= 0}
+            className="p-1 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 transition-colors"
+            title="Назад (ArrowLeft)"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onTogglePlay}
+            disabled={totalPlies === 0}
+            className="p-1.5 rounded bg-[#1C1C1C] hover:bg-[#262626] text-white transition-colors"
+            title={isPlaying ? 'Пауза' : 'Воспроизведение'}
+          >
+            {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={onGoToNext}
+            disabled={currentPly >= totalPlies}
+            className="p-1 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 transition-colors"
+            title="Вперед (ArrowRight)"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onGoToEnd}
+            disabled={currentPly >= totalPlies}
+            className="p-1 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 transition-colors"
+            title="В конец (End)"
+          >
+            <ChevronLast className="w-3.5 h-3.5" />
+          </button>
+          <div className="h-[1px] w-4 bg-[#262626] my-0.5" />
+          <button
+            onClick={onFlip}
+            className="p-1 rounded hover:bg-[#202020] text-[#1baca6] transition-colors"
+            title="Перевернуть доску"
+          >
+            <RotateCw className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onToggleSound}
+            className="p-1 rounded hover:bg-[#202020] text-[#CCCCCC] transition-colors"
+            title="Звук"
+          >
+            {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-emerald-400" /> : <VolumeX className="w-3.5 h-3.5 text-zinc-500" />}
+          </button>
+          {onRestartGame && !isSpectating && (
+            <button
+              onClick={onRestartGame}
+              className="p-1 rounded hover:bg-[#202020] text-zinc-400 hover:text-white transition-colors"
+              title="Заново"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <span className="text-[9px] text-[#777777] font-mono mt-0.5">{currentPly}/{totalPlies}</span>
+        </div>
       </div>
 
       {/* Bottom Player Bar */}
@@ -1131,11 +1190,9 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             />
             <User className="w-3.5 h-3.5 text-[#1baca6] shrink-0" />
             {bottomPlayer.country && (
-              <span className="text-xs leading-none shrink-0" title={bottomPlayer.country}>
-                {getCountryFlag(bottomPlayer.country)}
-              </span>
+              <CountryFlag code={bottomPlayer.country} className="w-4 h-3 shrink-0" />
             )}
-            <span className="font-semibold text-[#EDEDED] truncate max-w-[90px] sm:max-w-[150px]">
+            <span className="font-semibold text-[#EDEDED] truncate max-w-[140px] xs:max-w-[180px] sm:max-w-[260px]">
               {bottomPlayer.name}
             </span>
             {typeof bottomPlayer.elo === 'number' && (
@@ -1225,198 +1282,6 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
         </div>
       )}
 
-      {/* Active Mistake Replay Dedicated Trainer Card (Docked BELOW Board, NEVER covering pieces) */}
-      {activeMistake && (
-        <div className={`${boardWidthClass} mt-1 sm:mt-1.5 z-30 transition-all duration-200 shrink-0`}>
-          <div className="bg-[#121212]/95 border border-[#1baca6]/40 shadow-xl rounded-lg p-2.5 sm:p-3 flex flex-col gap-2 backdrop-blur-md">
-            {/* Header with Step, Minimize Toggle, and Exit */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Target className="w-3.5 h-3.5 text-[#1baca6] shrink-0" />
-                <span className="text-[11px] sm:text-xs font-mono font-bold text-white uppercase tracking-wider">
-                  Работа над ошибками ({activeMistake.index + 1}/{activeMistake.total})
-                </span>
-                <span
-                  className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold uppercase ${
-                    activeMistake.item.classification === 'blunder'
-                      ? 'bg-rose-950/70 border border-rose-700/60 text-rose-300'
-                      : 'bg-amber-950/70 border border-amber-700/60 text-amber-300'
-                  }`}
-                >
-                  {activeMistake.item.classification === 'blunder' ? 'Зевок' : 'Ошибка'}
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setIsMistakeCardCollapsed((prev) => !prev)}
-                  className="text-zinc-400 hover:text-white p-1 rounded hover:bg-[#1f1f1f] transition-colors cursor-pointer"
-                  title={isMistakeCardCollapsed ? 'Развернуть карточку' : 'Свернуть карточку'}
-                >
-                  {isMistakeCardCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-                </button>
-                {onExitMistakeReplay && (
-                  <button
-                    onClick={onExitMistakeReplay}
-                    className="text-zinc-500 hover:text-zinc-200 p-1 rounded hover:bg-[#1f1f1f] transition-colors cursor-pointer"
-                    title="Выйти из режима работы над ошибками"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* If Collapsed: compact 1-line strip */}
-            {isMistakeCardCollapsed ? (
-              <div className="flex items-center justify-between text-xs font-mono text-zinc-300 pt-0.5">
-                <span className="truncate">
-                  Ход {activeMistake.item.moveNumber}: сыграно{' '}
-                  <span className="font-bold text-rose-400">{activeMistake.item.playedSan}</span>
-                </span>
-                <button
-                  onClick={() => setIsMistakeCardCollapsed(false)}
-                  className="text-[#1baca6] hover:underline text-[11px] shrink-0 ml-2 cursor-pointer"
-                >
-                  Показать разбор
-                </button>
-              </div>
-            ) : (
-              /* Expanded Card Body */
-              <>
-                {/* Phase 1: Reviewing the played mistake and why it was wrong */}
-                {mistakeMode === 'review' && activeMistake.success === null && (
-                  <div className="flex flex-col gap-1.5 animate-in fade-in duration-150">
-                    <div className="text-[12px] font-mono text-zinc-200 flex items-center justify-between">
-                      <span>
-                        Ход {activeMistake.item.moveNumber}: вы сыграли{' '}
-                        <span className="font-bold text-rose-400 bg-rose-950/40 px-1 py-0.5 rounded border border-rose-800/40">
-                          {activeMistake.item.playedSan}
-                        </span>
-                      </span>
-                      <span className="text-[10px] text-zinc-400 font-sans hidden xs:inline">
-                        (показано красной стрелкой на доске)
-                      </span>
-                    </div>
-
-                    <div className="text-[11px] text-zinc-300 bg-[#181818] border border-[#2a2a2a] rounded p-2 leading-relaxed">
-                      <strong className="text-rose-300 font-mono text-[10px] uppercase block mb-0.5">
-                        Почему это неправильно:
-                      </strong>
-                      {activeMistake.item.reason}
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#262626]">
-                      <span className="text-[10px] text-zinc-400 font-mono">
-                        Изучите стрелку и позицию
-                      </span>
-                      <button
-                        onClick={() => setMistakeMode('solve')}
-                        className="px-3 py-1 rounded bg-[#1baca6] hover:bg-[#22c3bd] text-black font-mono font-bold text-xs flex items-center gap-1 transition-all shadow-md cursor-pointer"
-                      >
-                        <span>Найти лучший ход</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Phase 2: Finding and playing the best move */}
-                {(mistakeMode === 'solve' || activeMistake.success !== null) && (
-                  <div className="flex flex-col gap-1.5 animate-in fade-in duration-150">
-                    {/* Success state */}
-                    {activeMistake.success === true && (
-                      <div className="p-2 rounded bg-emerald-950/80 border border-emerald-600/60 flex items-center justify-between text-xs font-mono text-emerald-300 animate-in fade-in">
-                        <div className="flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                          <span className="font-semibold">Отлично! Ход верный!</span>
-                        </div>
-                        {onNextMistake && (
-                          <button
-                            onClick={() => {
-                              setMistakeMode('review');
-                              onNextMistake();
-                            }}
-                            className="px-2.5 py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
-                          >
-                            <span>{activeMistake.index + 1 < activeMistake.total ? 'Далее' : 'Завершить'}</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Failure state */}
-                    {activeMistake.success === false && (
-                      <div className="p-2 rounded bg-rose-950/80 border border-rose-600/60 flex items-center justify-between text-xs font-mono text-rose-300 animate-in fade-in">
-                        <div className="flex items-center gap-1.5">
-                          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                          <span>Ход не решает проблему. Попробуйте еще раз!</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Pedagogical Hint 1 (Piece highlight) */}
-                    {activeMistake.pieceHintRevealed && !activeMistake.solutionRevealed && (
-                      <div className="p-2 rounded bg-[#1baca6]/15 border border-[#1baca6]/40 text-[11px] font-mono text-[#1baca6] flex items-start gap-1.5 animate-in fade-in">
-                        <Lightbulb className="w-3.5 h-3.5 text-[#1baca6] shrink-0 mt-0.5" />
-                        <span>{activeMistake.item.tacticalHint}</span>
-                      </div>
-                    )}
-
-                    {/* Pedagogical Hint 2 (Target solution revealed) */}
-                    {activeMistake.solutionRevealed && activeMistake.item.bestMoveSan && (
-                      <div className="p-2 rounded bg-[#96bc4b]/15 border border-[#96bc4b]/40 text-[11px] font-mono text-[#96bc4b] flex items-center justify-between animate-in fade-in">
-                        <span>
-                          Решение: <strong>{activeMistake.item.bestMoveSan}</strong>{' '}
-                          ({activeMistake.item.pieceSquare} ➔ {activeMistake.item.targetSquare})
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Action buttons during solving */}
-                    {activeMistake.success !== true && (
-                      <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-[#262626] text-[11px] font-mono">
-                        <button
-                          onClick={() => setMistakeMode('review')}
-                          className="text-zinc-400 hover:text-zinc-200 flex items-center gap-1 transition-colors text-[10px] cursor-pointer"
-                          title="Посмотреть стрелку сыгранной ошибки и пояснение"
-                        >
-                          <Eye className="w-3 h-3 text-rose-400" />
-                          <span>Показать ошибку ({activeMistake.item.playedSan})</span>
-                        </button>
-
-                        <div className="flex items-center gap-2 ml-auto">
-                          {!activeMistake.pieceHintRevealed && !activeMistake.solutionRevealed && onRevealMistakePieceHint && (
-                            <button
-                              onClick={onRevealMistakePieceHint}
-                              className="text-[#1baca6] hover:text-[#25d3cc] hover:underline flex items-center gap-1 text-[11px] cursor-pointer"
-                              title="Подсветить фигуру, которой нужно сделать ход"
-                            >
-                              <Lightbulb className="w-3.5 h-3.5" />
-                              <span>Подсказка 1</span>
-                            </button>
-                          )}
-                          {activeMistake.pieceHintRevealed && !activeMistake.solutionRevealed && onRevealMistakeSolution && (
-                            <button
-                              onClick={onRevealMistakeSolution}
-                              className="text-[#f0c15c] hover:text-[#ffd875] hover:underline flex items-center gap-1 text-[11px] cursor-pointer"
-                              title="Показать правильный ход стрелкой"
-                            >
-                              <HelpCircle className="w-3.5 h-3.5" />
-                              <span>Показать ход</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Mobile Horizontal Move Ribbon (compact 1-line move strip on phones) */}
       {moves && moves.length > 0 && onSelectPly && !activeMistake && (
         <div
@@ -1450,8 +1315,8 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
         </div>
       )}
 
-      {/* Navigation & Controls Bar */}
-      <div className={`${boardWidthClass} mt-0.5 sm:mt-1 flex items-center justify-between px-2 py-0.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0`}>
+      {/* Navigation & Controls Bar (hidden on phone landscape to maximize board size) */}
+      <div className={`${boardWidthClass} mt-0.5 sm:mt-1 flex items-center justify-between px-2 py-0.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0 max-lg:landscape:hidden`}>
         {/* Left: Move Counter or AI Thinking Status */}
         <div className="text-xs font-mono text-[#888888] flex items-center gap-1.5 min-w-[50px] sm:min-w-[80px]">
           {isAiThinking ? (

@@ -207,7 +207,13 @@ export class StockfishService {
       return;
     }
 
-    this.send(`setoption name Skill Level value ${skillLevel}`);
+    if (this.configuredSkillLevel !== skillLevel) {
+      this.send(`setoption name Skill Level value ${skillLevel}`);
+      this.configuredSkillLevel = skillLevel;
+      if (skillLevel === 20) {
+        this.send('setoption name Clear Hash');
+      }
+    }
     this.send(`setoption name MultiPV value ${multiPv}`);
     this.send(`position fen ${fen}`);
     this.send(`go depth ${depth}`);

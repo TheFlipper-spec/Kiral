@@ -14,6 +14,7 @@ class SoundService {
         const voices = window.speechSynthesis.getVoices();
         if (!voices || voices.length === 0) return;
         const ruVoices = voices.filter(v => v.lang.startsWith('ru'));
+        if (ruVoices.length === 0) return;
         // Prioritize neural & high-clarity natural voices
         const naturalVoice = ruVoices.find(v =>
           v.name.includes('Natural') ||
@@ -21,9 +22,11 @@ class SoundService {
           v.name.toLowerCase().includes('dmitry') ||
           v.name.toLowerCase().includes('svetlana')
         );
-        const googleVoice = ruVoices.find(v => v.name.includes('Google'));
+        const googleVoice = ruVoices.find(v => v.name.includes('Google') || v.name.includes('Chrome'));
         const yandexVoice = ruVoices.find(v => v.name.toLowerCase().includes('yandex'));
-        this.preferredVoice = naturalVoice || googleVoice || yandexVoice || ruVoices[0] || null;
+        // Any modern voice avoiding legacy robotic Desktop Irina
+        const nonDesktopVoice = ruVoices.find(v => !v.name.toLowerCase().includes('irina') && !v.name.toLowerCase().includes('desktop'));
+        this.preferredVoice = naturalVoice || googleVoice || yandexVoice || nonDesktopVoice || ruVoices[0] || null;
       } catch {
         // Fallback to default
       }

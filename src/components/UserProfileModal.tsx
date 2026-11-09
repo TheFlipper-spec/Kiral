@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   X,
   User,
@@ -14,10 +14,12 @@ import {
   Check,
   Globe,
   Camera,
-  Upload
+  Upload,
+  Zap
 } from 'lucide-react';
 import type { UserProfile } from '../services/userService';
-import { userService, COUNTRIES, getCountryFlag } from '../services/userService';
+import { userService, COUNTRIES } from '../services/userService';
+import { CountryFlag } from './CountryFlag';
 import { multiplayerService } from '../services/multiplayerService';
 import type { LiveGamePresence } from '../services/multiplayerService';
 
@@ -141,6 +143,41 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const draws = displayedUser.stats?.draws || 0;
   const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
 
+  const rankedMatches = useMemo(() => {
+    const history = displayedUser.matchHistory || [];
+    return history.filter((m) => m.gameMode === 'ranked');
+  }, [displayedUser.matchHistory]);
+
+  const modeStats = useMemo(() => {
+    const categories: Record<'bullet' | 'blitz' | 'rapid' | 'classical', { label: string; wins: number; losses: number; draws: number; total: number }> = {
+      bullet: { label: 'Пуля (1+0)', wins: 0, losses: 0, draws: 0, total: 0 },
+      blitz: { label: 'Блиц (3+0, 3+2)', wins: 0, losses: 0, draws: 0, total: 0 },
+      rapid: { label: 'Рапид (10+0)', wins: 0, losses: 0, draws: 0, total: 0 },
+      classical: { label: 'Классика (15+10)', wins: 0, losses: 0, draws: 0, total: 0 },
+    };
+
+    rankedMatches.forEach((m) => {
+      const label = (m.timeControlLabel || '').toLowerCase();
+      let cat: 'bullet' | 'blitz' | 'rapid' | 'classical' = 'blitz';
+      if (label.includes('1+') || label.includes('пуля') || label.includes('bullet')) {
+        cat = 'bullet';
+      } else if (label.includes('10+') || label.includes('рапид') || label.includes('rapid')) {
+        cat = 'rapid';
+      } else if (label.includes('15+') || label.includes('30+') || label.includes('классика')) {
+        cat = 'classical';
+      } else {
+        cat = 'blitz';
+      }
+
+      categories[cat].total++;
+      if (m.result === 'win') categories[cat].wins++;
+      else if (m.result === 'loss') categories[cat].losses++;
+      else if (m.result === 'draw') categories[cat].draws++;
+    });
+
+    return categories;
+  }, [rankedMatches]);
+
   const handleFriendAction = () => {
     if (friendshipStatus === 'friends') {
       userService.removeFriend(displayedUser.id);
@@ -217,12 +254,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
           <h3 className="text-base font-bold text-white font-mono mb-1 flex items-center justify-center gap-2">
             {displayedUser.country && (
-              <span
-                className="text-xl leading-none select-none cursor-default"
-                title={COUNTRIES.find((c) => c.code === displayedUser.country)?.nameRu}
-              >
-                {getCountryFlag(displayedUser.country)}
-              </span>
+              <CountryFlag code={displayedUser.country} className="w-5 h-3.5 shrink-0 inline-block" />
             )}
             <span>{displayedUser.username}</span>
           </h3>
@@ -254,9 +286,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           </div>
 
           {/* Detailed Match Statistics */}
-          <div className="w-full p-3.5 rounded-lg bg-[#161616] border border-[#262626] mb-4">
+          <div className="w-full p-3.5 rounded-lg bg-[#161616] border border-[#262626] mb-3 text-left">
             <div className="flex items-center justify-between mb-2 pb-2 border-b border-[#222222]">
-              <span className="text-[11px] font-mono text-[#888888]">Всего сыграно партий</span>
+              <span className="text-[11px] font-mono text-[#888888]">Всего партий (общий зачет)</span>
               <span className="text-xs font-mono font-bold text-white">{totalGames}</span>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center mb-2">
@@ -276,6 +308,43 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <div className="flex items-center justify-between pt-1">
               <span className="text-[11px] font-mono text-[#888888]">Винрейт</span>
               <span className="text-xs font-mono font-bold text-[#1baca6]">{winRate}%</span>
+            </div>
+          </div>
+
+          {/* Ranked Mode Statistics Breakdown */}
+          <div className="w-full p-3 rounded-lg bg-[#161616] border border-[#262626] mb-4 text-left">
+            <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-[#222222]">
+              <div className="flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-[#1baca6]" />
+                <span className="text-[11px] font-mono font-bold text-zinc-200 uppercase tracking-wider">
+                  Рейтинговые матчи
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-400">{rankedMatches.length} игр</span>
+            </div>
+
+            <div className="space-y-1.5">
+              {(Object.keys(modeStats) as Array<keyof typeof modeStats>).map((key) => {
+                const item = modeStats[key];
+                const modeWinRate = item.total > 0 ? Math.round((item.wins / item.total) * 100) : 0;
+                return (
+                  <div
+                    key={key}
+                    className="flex items-center justify-between px-2 py-1.5 rounded bg-[#1A1A1A] text-xs font-mono"
+                  >
+                    <span className="text-zinc-300 font-medium truncate max-w-[130px]">{item.label}</span>
+                    <div className="flex items-center gap-2 text-[11px] shrink-0">
+                      <span className="text-zinc-400">{item.total}</span>
+                      <span className="text-emerald-400 font-bold">{item.wins} В</span>
+                      <span className="text-zinc-500">{item.draws} Н</span>
+                      <span className="text-rose-400">{item.losses} П</span>
+                      <span className="px-1.5 py-0.2 rounded bg-[#1baca6]/15 text-[#1baca6] font-bold text-[10px]">
+                        {modeWinRate}%
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -300,7 +369,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     }}
                     className="px-2 py-1 rounded bg-[#202020] hover:bg-[#282828] border border-[#333333] text-xs font-mono text-zinc-200 flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    <span>{getCountryFlag(displayedUser.country) || '🏳️'}</span>
+                    <CountryFlag code={displayedUser.country} className="w-4 h-3 shrink-0" />
                     <span>
                       {COUNTRIES.find((c) => c.code === displayedUser.country)?.nameRu || 'Выбрать'}
                     </span>
@@ -321,7 +390,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                               : 'bg-[#1A1A1A] border-[#2A2A2A] text-zinc-300 hover:bg-[#222222]'
                           }`}
                         >
-                          <span className="text-base">{c.flag}</span>
+                          <CountryFlag code={c.code} className="w-4 h-3 shrink-0" />
                           <span className="truncate">{c.nameRu}</span>
                         </button>
                       );
@@ -418,11 +487,11 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 </button>
               )}
 
-              <div className="flex items-center gap-2 w-full">
+              <div className="grid grid-cols-2 gap-2.5 w-full">
                 <button
                   onClick={handleFriendAction}
                   disabled={friendshipStatus === 'pending_outgoing'}
-                  className={`flex-1 py-2 px-3 rounded-lg border text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                  className={`h-10 px-3 rounded-lg border text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-colors ${
                     friendshipStatus === 'friends'
                       ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
                       : friendshipStatus === 'pending_incoming'
@@ -440,31 +509,31 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   ) : friendshipStatus === 'pending_incoming' ? (
                     <>
                       <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Принять заявку</span>
+                      <span>Принять</span>
                     </>
                   ) : friendshipStatus === 'pending_outgoing' ? (
                     <>
                       <Clock className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Заявка отправлена</span>
+                      <span>Отправлено</span>
                     </>
                   ) : (
                     <>
                       <UserPlus className="w-3.5 h-3.5 text-[#1baca6]" />
-                      <span>+ Заявка в друзья</span>
+                      <span>В друзья</span>
                     </>
                   )}
                 </button>
 
-                {!liveGame && (
+                {!liveGame ? (
                   <button
                     onClick={handleChallenge}
                     disabled={challenged}
-                    className="flex-1 py-2 px-3 rounded-lg bg-[#1baca6] text-black hover:bg-[#20c2bc] text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-75"
+                    className="h-10 px-3 rounded-lg border border-[#1baca6] bg-[#1baca6] text-black hover:bg-[#20c2bc] text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-75"
                   >
                     {challenged ? (
                       <>
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Вызов отправлен</span>
+                        <span>Отправлен</span>
                       </>
                     ) : (
                       <>
@@ -473,6 +542,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       </>
                     )}
                   </button>
+                ) : (
+                  <div className="h-10 flex items-center justify-center text-[11px] font-mono text-zinc-500">
+                    В партии
+                  </div>
                 )}
               </div>
             </div>

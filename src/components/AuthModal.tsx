@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Shield, LogIn, Lock, LogOut, Settings, RefreshCw } from 'lucide-react';
-import { userService } from '../services/userService';
+import { X, User, Shield, LogIn, Lock, LogOut, Settings, RefreshCw, Camera, Globe, Upload } from 'lucide-react';
+import { userService, COUNTRIES } from '../services/userService';
 import type { UserProfile } from '../services/userService';
+import { CountryFlag } from './CountryFlag';
 import { cloudDatabase } from '../services/cloudDatabase';
 import type { CloudConfig } from '../services/cloudDatabase';
 import { getStoredAuth0Config, saveAuth0Config, isAuth0Configured } from '../services/auth0Service';
@@ -35,6 +36,63 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [masterPasswordError, setMasterPasswordError] = useState<string | null>(null);
   const [devTab, setDevTab] = useState<'cloud' | 'auth0'>('cloud');
   const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
+  const [isEditingAvatar, setIsEditingAvatar] = useState(false);
+  const [isEditingCountry, setIsEditingCountry] = useState(false);
+
+  const handleSelectCountry = (code: string) => {
+    const updated = userService.updateProfile(currentUser.id, { country: code });
+    if (updated) {
+      onUserChanged({ ...updated });
+      setSuccessMsg('Страна профиля обновлена');
+      setTimeout(() => setSuccessMsg(null), 2000);
+    }
+    setIsEditingCountry(false);
+  };
+
+  const handleSelectAvatarPreset = (symbol: string) => {
+    const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" fill="#181e22" rx="50"/><text x="50" y="65" font-size="52" text-anchor="middle" dominant-baseline="middle" fill="#1baca6">${symbol}</text></svg>`;
+    const dataUri = `data:image/svg+xml;utf8,${encodeURIComponent(svgStr)}`;
+    const updated = userService.updateProfile(currentUser.id, { avatarUrl: dataUri });
+    if (updated) {
+      onUserChanged({ ...updated });
+      setSuccessMsg('Аватар обновлен');
+      setTimeout(() => setSuccessMsg(null), 2000);
+    }
+    setIsEditingAvatar(false);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const size = Math.min(img.width, img.height);
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const sx = (img.width - size) / 2;
+          const sy = (img.height - size) / 2;
+          ctx.drawImage(img, sx, sy, size, size, 0, 0, 128, 128);
+          const resized = canvas.toDataURL('image/jpeg', 0.85);
+          const updated = userService.updateProfile(currentUser.id, { avatarUrl: resized });
+          if (updated) {
+            onUserChanged({ ...updated });
+            setSuccessMsg('Фото профиля обновлено');
+            setTimeout(() => setSuccessMsg(null), 2000);
+          }
+        }
+      };
+      if (typeof reader.result === 'string') {
+        img.src = reader.result;
+      }
+    };
+    reader.readAsDataURL(file);
+    setIsEditingAvatar(false);
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -261,19 +319,113 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </span>
               </div>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-lg font-bold text-white">
-                {currentUser.username}
-              </span>
-              <div className="flex items-center gap-2 text-xs font-mono">
-                <span className="px-2 py-0.5 rounded bg-[#1baca6]/15 text-[#1baca6] font-bold">
-                  {currentUser.elo} ELO
-                </span>
-                <span className="px-2 py-0.5 rounded bg-[#96bc4b]/15 text-[#96bc4b] font-bold">
-                  {currentUser.puzzlePoints} баллов
-                </span>
+            {/* Avatar & Profile Identity Header */}
+            <div className="flex items-center gap-3.5 my-2.5">
+              <div className="relative group shrink-0">
+                <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#262626] bg-[#1a1a1a] flex items-center justify-center">
+                  {currentUser.avatarUrl ? (
+                    <img src={currentUser.avatarUrl} alt={currentUser.username} className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-6 h-6 text-[#777777]" />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingAvatar((p) => !p);
+                    setIsEditingCountry(false);
+                  }}
+                  className="absolute -bottom-1 -right-1 p-1 rounded-full bg-[#1baca6] hover:bg-[#20c2bc] text-black shadow-md transition-transform hover:scale-110"
+                  title="Изменить аватар"
+                >
+                  <Camera className="w-3 h-3" />
+                </button>
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-lg font-bold text-white truncate">
+                    {currentUser.username}
+                  </span>
+                  {currentUser.country && (
+                    <CountryFlag code={currentUser.country} className="w-5 h-3.5 shrink-0" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingCountry((p) => !p);
+                      setIsEditingAvatar(false);
+                    }}
+                    className="p-1 rounded hover:bg-[#222222] text-zinc-400 hover:text-white transition-colors"
+                    title="Выбрать страну (флаг)"
+                  >
+                    <Globe className="w-3.5 h-3.5 text-[#1baca6]" />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 mt-0.5 text-xs font-mono">
+                  <span className="px-2 py-0.5 rounded bg-[#1baca6]/15 text-[#1baca6] font-bold">
+                    {currentUser.elo} ELO
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-[#96bc4b]/15 text-[#96bc4b] font-bold">
+                    {currentUser.puzzlePoints} баллов
+                  </span>
+                </div>
               </div>
             </div>
+
+            {/* Avatar Selection Popover */}
+            {isEditingAvatar && (
+              <div className="mt-2.5 p-3 rounded-lg bg-[#181818] border border-[#2c2c2c] space-y-2.5 animate-in fade-in">
+                <div className="flex items-center justify-between text-xs font-mono text-zinc-300">
+                  <span className="font-semibold">Выберите аватар:</span>
+                  <label className="cursor-pointer text-[#1baca6] hover:underline flex items-center gap-1 text-[11px]">
+                    <Upload className="w-3 h-3" />
+                    <span>Загрузить фото</span>
+                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                  </label>
+                </div>
+                <div className="grid grid-cols-6 gap-2">
+                  {['♔', '♕', '♖', '♗', '♘', '♙'].map((sym) => (
+                    <button
+                      key={sym}
+                      type="button"
+                      onClick={() => handleSelectAvatarPreset(sym)}
+                      className="h-10 rounded bg-[#202020] hover:bg-[#282828] border border-[#333333] hover:border-[#1baca6] text-[#1baca6] text-xl flex items-center justify-center transition-all cursor-pointer"
+                    >
+                      {sym}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Country Flag Selector Popover */}
+            {isEditingCountry && (
+              <div className="mt-2.5 p-3 rounded-lg bg-[#181818] border border-[#2c2c2c] space-y-2 animate-in fade-in max-h-48 overflow-y-auto">
+                <span className="text-xs font-mono font-semibold text-zinc-300 block mb-1">
+                  Выберите страну (будет отображаться рядом с ником):
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {COUNTRIES.map((c) => (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => handleSelectCountry(c.code)}
+                      className={`px-2.5 py-1.5 rounded flex items-center gap-2 text-xs font-mono transition-colors text-left border ${
+                        currentUser.country === c.code
+                          ? 'bg-[#1baca6]/20 border-[#1baca6] text-white'
+                          : 'bg-[#202020] border-[#2d2d2d] text-zinc-300 hover:bg-[#282828]'
+                      }`}
+                    >
+                      <CountryFlag code={c.code} className="w-4 h-3 shrink-0" />
+                      <span className="truncate">{c.nameRu}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="mt-2 text-[11px] font-mono text-[#888888] flex items-center gap-3">
               <span>Побед: <strong className="text-[#EDEDED]">{currentUser.stats.wins}</strong></span>
               <span>Поражений: <strong className="text-[#EDEDED]">{currentUser.stats.losses}</strong></span>

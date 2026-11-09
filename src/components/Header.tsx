@@ -1,8 +1,8 @@
 import React from 'react';
-import { BookOpen, Swords, Users, Trophy, User, GraduationCap } from 'lucide-react';
+import { BookOpen, Swords, Users, Trophy, User, GraduationCap, Activity } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
-import { getCountryFlag } from '../services/userService';
+import { CountryFlag } from './CountryFlag';
 import type { ScoreDeltaData } from './ScoreDeltaNotification';
 
 export type GameMode = 'review' | 'vs-ai' | 'pvp' | 'puzzles' | 'ranked' | 'learn';
@@ -45,7 +45,9 @@ export const Header: React.FC<HeaderProps> = ({
   currentUser,
   scoreDelta,
   onOpenLeaderboard,
-  onOpenAuth
+  onOpenAuth,
+  isAnalysisEnabled = true,
+  onToggleAnalysis
 }) => {
 
   const renderModeButtons = (isMobileBar = false) => (
@@ -209,6 +211,22 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
+          {/* Master Analysis Switch (Permanently visible on PC & Mobile) */}
+          {onToggleAnalysis && gameMode !== 'ranked' && (
+            <button
+              onClick={onToggleAnalysis}
+              className={`p-1.5 sm:px-2.5 sm:py-1 rounded text-xs font-mono transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 border ${
+                isAnalysisEnabled
+                  ? 'bg-[#1baca6]/15 text-[#1baca6] border-[#1baca6]/50 hover:bg-[#1baca6]/25 font-bold shadow-[0_0_10px_rgba(27,172,166,0.15)]'
+                  : 'bg-[#141414] text-[#777777] border-[#2a2a2a] hover:text-[#CCCCCC]'
+              }`}
+              title={isAnalysisEnabled ? 'Анализ ходов включен (нажмите для выключения)' : 'Анализ ходов выключен (нажмите для включения)'}
+            >
+              <Activity className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
+              <span className="hidden sm:inline">{isAnalysisEnabled ? 'Анализ: Вкл' : 'Анализ: Выкл'}</span>
+            </button>
+          )}
+
           {/* Leaderboard button */}
           <button
             onClick={onOpenLeaderboard}
@@ -266,9 +284,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <User className="w-3.5 h-3.5 text-[#1baca6] shrink-0" strokeWidth={1.5} />
                 )}
                 {currentUser.country && (
-                  <span className="text-xs leading-none shrink-0" title={currentUser.country}>
-                    {getCountryFlag(currentUser.country)}
-                  </span>
+                  <CountryFlag code={currentUser.country} className="w-4 h-3 shrink-0" />
                 )}
                 <span className="font-semibold text-white truncate max-w-[68px] sm:max-w-[100px]">
                   {currentUser.username}

@@ -85,13 +85,13 @@ body {
 
 @media (min-width: 1024px) {
   .kiral-board-container {
-    max-width: min(calc(100vw - 490px), calc(100vh - 215px));
+    max-width: min(calc(100vw - 460px), calc(100vh - 235px));
   }
 }
 
 @media (min-width: 1440px) {
   .kiral-board-container {
-    max-width: min(calc(100vw - 530px), calc(100vh - 210px));
+    max-width: min(calc(100vw - 500px), calc(100vh - 230px));
   }
 }
 
@@ -103,7 +103,7 @@ body {
 
 @media (max-height: 540px) and (orientation: landscape) {
   .kiral-board-container {
-    max-width: min(96vw, calc(100vh - 110px));
+    max-width: min(calc(100vw - 120px), calc(100vh - 60px));
   }
 }
 

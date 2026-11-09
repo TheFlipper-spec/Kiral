@@ -166,10 +166,154 @@ export interface ClassifyInput {
   mateBefore: number | null;
   mateAfter: number | null;
   bestMoveUci: string;
+  bestMoveSan?: string;
   secondLineEval?: number;
   secondLineUci?: string;
   previousMoveClassification?: MoveClassification;
   openingName?: string | null;
+}
+
+function getDetailedChessContextReason(
+  _chessBefore: Chess,
+  chessAfter: Chess,
+  input: ClassifyInput,
+  classification: MoveClassification,
+  cpLoss: number
+): string {
+  const { uci, san, turn, piece, captured } = input;
+  const fromSquare = uci.substring(0, 2);
+  const toSquare = uci.substring(2, 4);
+
+  const pieceNamesRu: Record<string, string> = {
+    p: 'пешку',
+    n: 'коня',
+    b: 'слона',
+    r: 'ладью',
+    q: 'ферзя',
+    k: 'короля'
+  };
+
+  const movedNameAccusative = pieceNamesRu[piece.toLowerCase()] || 'фигуру';
+
+  // 1. Castling
+  if (san === 'O-O' || san === 'O-O-O') {
+    return 'Рокировка прячет короля в безопасность и подключает ладью к игре.';
+  }
+
+  // 2. Checkmate delivered
+  if (chessAfter.isCheckmate()) {
+    return 'Шах и мат! Блестящий завершающий удар партии.';
+  }
+
+  // 3. Check delivered
+  const isCheck = chessAfter.inCheck();
+
+  // 4. Check if piece was hung (destination square attacked by opponent and not defended)
+  if (classification === 'blunder' || classification === 'mistake') {
+    const oppMoves = chessAfter.moves({ verbose: true });
+    const attackedDest = oppMoves.filter((m) => m.to === toSquare);
+
+    // Check if king diagonal was weakened early (e.g. f2-f4 or f7-f5 or g-pawn push)
+    if (piece.toLowerCase() === 'p' && (fromSquare === 'f2' || fromSquare === 'f7' || fromSquare === 'g2' || fromSquare === 'g7') && input.ply <= 12) {
+      return `Ход ${san} ослабляет прикрытие короля по диагонали и отстает в развитии фигур.`;
+    }
+
+    if (attackedDest.length > 0 && piece.toLowerCase() !== 'p') {
+      return `Вы оставляете ${movedNameAccusative} на ${toSquare} под боем без достаточной защиты.`;
+    }
+
+    // Check if an existing high-value piece was left hanging
+    const boardAfter = chessAfter.board();
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const sqPiece = boardAfter[r][c];
+        if (sqPiece && sqPiece.color === turn && sqPiece.type !== 'p' && sqPiece.type !== 'k') {
+          const sq = sqPiece.square;
+          const attacksOnSq = oppMoves.filter((m) => m.to === sq);
+          if (attacksOnSq.length > 0) {
+            const sqName = pieceNamesRu[sqPiece.type] || 'фигуру';
+            return `Ход оставляет вашу ${sqName} на ${sq} под ударом соперника.`;
+          }
+        }
+      }
+    }
+
+    if (classification === 'blunder') {
+      const lostPawns = (cpLoss / 100).toFixed(1);
+      return `Грубая ошибка — потеря материала или упущен критический удар (-${lostPawns} п.).`;
+    }
+    return `Ошибка — неточный ход, передающий позиционную инициативу сопернику.`;
+  }
+
+  // Missed tactic
+  if (classification === 'miss') {
+    return input.bestMoveSan
+      ? `Упущен шанс: ход ${input.bestMoveSan} позволял наказать ошибку соперника и выиграть материал.`
+      : 'Упущен тактический шанс получить решающее преимущество.';
+  }
+
+  // Tactical / Best moves
+  if (classification === 'brilliant' || classification === 'great' || classification === 'best') {
+    const myMovesAfter = chessAfter.moves({ verbose: true });
+    const attacksFromDest = myMovesAfter.filter(
+      (m) => m.from === toSquare && m.captured && ['q', 'r', 'b', 'n'].includes(m.captured)
+    );
+    if (attacksFromDest.length >= 2) {
+      return `Двойной удар (вилка) на ${toSquare}! Одновременная атака двух фигур соперника.`;
+    }
+
+    if (isCheck) {
+      return `Атакующий шах, вынуждающий короля соперника отступить на неудобную позицию.`;
+    }
+
+    if (captured) {
+      const capName = pieceNamesRu[captured.toLowerCase()] || 'фигуру';
+      return `Точное взятие: забирает ${capName} и укрепляет позицию.`;
+    }
+
+    // Central pawn control
+    if (piece.toLowerCase() === 'p' && ['d4', 'e4', 'd5', 'e5', 'c4', 'c5'].includes(toSquare)) {
+      return `Захват пространства в центре и контроль ключевых полей доски.`;
+    }
+
+    // Minor piece development
+    if ((piece.toLowerCase() === 'n' || piece.toLowerCase() === 'b') && input.ply <= 16) {
+      return `Гармоничное развитие фигуры с созданием давления на позицию противника.`;
+    }
+
+    if (piece.toLowerCase() === 'r' && (toSquare.startsWith('d') || toSquare.startsWith('e') || toSquare.endsWith('1') || toSquare.endsWith('8'))) {
+      return 'Захват открытой вертикали ладьей с созданием давления.';
+    }
+
+    if (classification === 'brilliant') {
+      return 'Блестящая жертва материала, вскрывающая оборону соперника!';
+    }
+    if (classification === 'great') {
+      return 'Отличная находка — единственный сильнейший ход в этой позиции!';
+    }
+    return 'Сильнейший ход по первой линии движка, максимизирующий активность.';
+  }
+
+  if (classification === 'inaccuracy') {
+    if (input.ply <= 8 && piece.toLowerCase() === 'p') {
+      return `Ход ${san} несколько отклоняется от активного развития фигур в центре, хотя позиция играема.`;
+    }
+    return input.bestMoveSan
+      ? `Небольшая неточность: ход ${input.bestMoveSan} сохранял более точный перевес.`
+      : 'Неточность — потеря части позиционного перевеса.';
+  }
+
+  if (classification === 'excellent' || classification === 'good') {
+    if (input.ply <= 12 && (piece.toLowerCase() === 'n' || piece.toLowerCase() === 'b')) {
+      return 'Хороший развивающий ход, подготавливающий координацию фигур.';
+    }
+    if (piece.toLowerCase() === 'p' && ['d4', 'e4', 'd5', 'e5'].includes(toSquare)) {
+      return 'Уверенная игра по центру с укреплением пешечной структуры.';
+    }
+    return 'Надежный ход, сохраняющий прочное положение на доске.';
+  }
+
+  return 'Качественное продолжение партии.';
 }
 
 export function classifySingleMove(input: ClassifyInput): {
@@ -289,11 +433,11 @@ export function classifySingleMove(input: ClassifyInput): {
   }
 
   // 2. Check Opening Book (only if move does not lose significant eval)
-  if (isOpeningBook(fenBefore, san, ply) && cpLoss <= 35 && winLoss <= 3.5) {
+  if (isOpeningBook(fenBefore, san, ply) && cpLoss <= 65 && winLoss <= 7.0) {
     return {
       classification: 'book',
       reason: input.openingName
-        ? `Теоретический ход в рамках дебюта «${input.openingName}» — активная борьба за центр и подготовка развития`
+        ? `Теоретический ход в рамках дебюта «${input.openingName}» — борьба за центр и планомерное развитие`
         : 'Теоретический дебютный ход из книги гроссмейстеров',
       winBefore,
       winAfter,
@@ -302,16 +446,52 @@ export function classifySingleMove(input: ClassifyInput): {
     };
   }
 
+  // In early opening (ply <= 8), non-tactical moves should NOT be labeled Blunders
+  // unless genuine material is hung or checkmate is threatened.
+  const isEarlyOpening = ply <= 8;
+  const chessAfter = new Chess(fenAfter);
+
   // 3. Check Severe Errors FIRST so a high-cpLoss move is NEVER misclassified as Good/Excellent
   // Blunder (??): >= 18% win probability loss OR >= 220 centipawns lost
   if (winLoss >= 18.0 || cpLoss >= 220) {
-    const lostPawns = (cpLoss / 100).toFixed(1);
+    if (isEarlyOpening && !playerMateAfter) {
+      // Check if player actually lost material
+      const matBefore = countMaterial(fenBefore, turn);
+      const matAfterCurr = countMaterial(fenAfter, turn);
+      const oppMatBefore = countMaterial(fenBefore, turn === 'w' ? 'b' : 'w');
+      const oppMatAfter = countMaterial(fenAfter, turn === 'w' ? 'b' : 'w');
+      const netMaterialDrop = (matBefore - matAfterCurr) - (oppMatBefore - oppMatAfter);
+
+      if (netMaterialDrop <= 0) {
+        // Sound or alternative opening move (e.g. 1. d4 e6 2. f4, Bird/Dutch setups)
+        const contextReason = getDetailedChessContextReason(
+          chess,
+          chessAfter,
+          input,
+          'inaccuracy',
+          cpLoss
+        );
+        return {
+          classification: cpLoss >= 280 ? 'mistake' : 'inaccuracy',
+          reason: contextReason,
+          winBefore,
+          winAfter,
+          winLoss: Math.min(10, winLoss),
+          cpLoss: Math.min(95, cpLoss)
+        };
+      }
+    }
+
+    const contextReason = getDetailedChessContextReason(
+      chess,
+      chessAfter,
+      input,
+      'blunder',
+      cpLoss
+    );
     return {
       classification: 'blunder',
-      reason:
-        cpLoss >= 280
-          ? `Грубая ошибка (зевок материала) — потеряно ${lostPawns} п. оценки`
-          : `Грубая ошибка — позиция резко ухудшилась (-${lostPawns} п.)`,
+      reason: contextReason,
       winBefore,
       winAfter,
       winLoss,
@@ -324,9 +504,16 @@ export function classifySingleMove(input: ClassifyInput): {
     (previousMoveClassification === 'mistake' || previousMoveClassification === 'blunder') &&
     (winLoss >= 8.5 || cpLoss >= 95)
   ) {
+    const contextReason = getDetailedChessContextReason(
+      chess,
+      chessAfter,
+      input,
+      'miss',
+      cpLoss
+    );
     return {
       classification: 'miss',
-      reason: 'Упущен шанс наказать грубую ошибку соперника тактическим ударом',
+      reason: contextReason,
       winBefore,
       winAfter,
       winLoss,
@@ -336,10 +523,16 @@ export function classifySingleMove(input: ClassifyInput): {
 
   // Mistake (?): >= 9.5% win probability loss OR >= 105 centipawns lost
   if (winLoss >= 9.5 || cpLoss >= 105) {
-    const lostPawns = (cpLoss / 100).toFixed(1);
+    const contextReason = getDetailedChessContextReason(
+      chess,
+      chessAfter,
+      input,
+      'mistake',
+      cpLoss
+    );
     return {
       classification: 'mistake',
-      reason: `Ошибка — серьезная потеря темпа или позиционного перевеса (-${lostPawns} п.)`,
+      reason: contextReason,
       winBefore,
       winAfter,
       winLoss,
@@ -349,10 +542,16 @@ export function classifySingleMove(input: ClassifyInput): {
 
   // Inaccuracy (?!): >= 4.5% win probability loss OR >= 50 centipawns lost
   if (winLoss >= 4.5 || cpLoss >= 50) {
-    const lostPawns = (cpLoss / 100).toFixed(1);
+    const contextReason = getDetailedChessContextReason(
+      chess,
+      chessAfter,
+      input,
+      'inaccuracy',
+      cpLoss
+    );
     return {
       classification: 'inaccuracy',
-      reason: `Неточность — потеря части перевеса (-${lostPawns} п.), был более точный план`,
+      reason: contextReason,
       winBefore,
       winAfter,
       winLoss,

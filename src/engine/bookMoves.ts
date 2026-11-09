@@ -21,6 +21,27 @@ export const BOOK_MOVES: Set<string> = new Set([
   "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3:e6",
   "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3:f5",
   "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3:g6",
+  "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3:c5",
+  "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq -:e6",
+  "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq -:d5",
+  "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq -:Nf6",
+  "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq -:f5",
+
+  // 1. d4 e6 (Horwitz Defense / French / Dutch transposition)
+  "rnbqkbnr/pppp1ppp/4p3/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq -:f4",
+  "rnbqkbnr/pppp1ppp/4p3/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq -:c4",
+  "rnbqkbnr/pppp1ppp/4p3/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq -:Nf3",
+  "rnbqkbnr/pppp1ppp/4p3/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq -:e4",
+  "rnbqkbnr/pppp1ppp/4p3/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq -:Bf4",
+  "rnbqkbnr/pppp1ppp/4p3/8/3P4/8/PPP1PPPP/RNBQKBNR w KQkq -:Nc3",
+
+  // Bird's Opening (1. f4)
+  "rnbqkbnr/pppppppp/8/8/5P2/8/PPPPP1PP/RNBQKBNR b KQkq f3:d5",
+  "rnbqkbnr/pppppppp/8/8/5P2/8/PPPPP1PP/RNBQKBNR b KQkq f3:e5",
+  "rnbqkbnr/pppppppp/8/8/5P2/8/PPPPP1PP/RNBQKBNR b KQkq f3:Nf6",
+  "rnbqkbnr/pppppppp/8/8/5P2/8/PPPPP1PP/RNBQKBNR b KQkq -:d5",
+  "rnbqkbnr/pppppppp/8/8/5P2/8/PPPPP1PP/RNBQKBNR b KQkq -:e5",
+  "rnbqkbnr/pppppppp/8/8/5P2/8/PPPPP1PP/RNBQKBNR b KQkq -:Nf6",
 
   // 1. e4 e5
   "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6:Nf3",
@@ -125,8 +146,21 @@ export function detectOpeningNameFromMoves(fens: string[]): string | null {
 
 export function isOpeningBook(fen: string, san: string, ply: number): boolean {
   if (ply > 16) return false;
-  // Normalize fen to board + active color + castling + ep
   const parts = fen.split(" ");
-  const normalizedKey = `${parts[0]} ${parts[1]} ${parts[2]} ${parts[3]}:${san}`;
-  return BOOK_MOVES.has(normalizedKey);
+  if (parts.length < 2) return false;
+
+  // Check key with full components
+  const keyFull = `${parts[0]} ${parts[1]} ${parts[2] || '-'} ${parts[3] || '-'}:${san}`;
+  // Check key without en-passant square
+  const keyNoEp = `${parts[0]} ${parts[1]} ${parts[2] || '-'}:${san}`;
+  // Check key with board and active turn
+  const keyBasic = `${parts[0]} ${parts[1]}:${san}`;
+
+  return (
+    BOOK_MOVES.has(keyFull) ||
+    BOOK_MOVES.has(keyNoEp) ||
+    BOOK_MOVES.has(keyBasic) ||
+    // Also check if any book move matches the piece placement + turn + san regardless of castling/ep
+    Array.from(BOOK_MOVES).some(bm => bm.startsWith(`${parts[0]} ${parts[1]}`) && bm.endsWith(`:${san}`))
+  );
 }
