@@ -24,7 +24,7 @@ import { MatchmakingModal } from './components/MatchmakingModal';
 import { UserProfileModal } from './components/UserProfileModal';
 import { multiplayerService } from './services/multiplayerService';
 import type { RankedMatchSession, MovePayload, DirectChallengePayload, LiveGamePresence } from './services/multiplayerService';
-import { Swords, RotateCw, Handshake, Flag, Volume2, VolumeX, Undo2, Activity, Upload } from 'lucide-react';
+import { Swords, RotateCw, Handshake, Flag, Volume2, VolumeX, Undo2, Activity, Upload, CheckCircle2 } from 'lucide-react';
 import { neuralVoice } from './services/neuralVoiceService';
 import { userService } from './services/userService';
 import type { UserProfile, ActiveGameSyncData } from './services/userService';
@@ -157,6 +157,12 @@ export const App: React.FC = () => {
   blackTimeRef.current = blackTime;
   const activeRankedSessionRef = useRef<RankedMatchSession | null>(null);
   activeRankedSessionRef.current = activeRankedSession;
+  const gameOverMessageRef = useRef<string | null>(null);
+  gameOverMessageRef.current = gameOverMessage;
+
+  const isRankedActive = gameMode === 'ranked' && Boolean(activeRankedSession) && !gameOverMessage;
+  const isRankedActiveRef = useRef<boolean>(false);
+  isRankedActiveRef.current = isRankedActive;
 
   const activeTimeControl = useMemo(
     () =>
@@ -277,13 +283,13 @@ export const App: React.FC = () => {
 
       try {
         const fullReport = await gameAnalyzer.analyzePgn(pgnToAnalyze, depth, (prog) => {
-          if (gameModeRef.current !== 'review') return;
+          if (gameModeRef.current !== 'review' && gameModeRef.current !== 'ranked') return;
           setProgress(prog);
           if (prog.reportSoFar) {
             setReport(prog.reportSoFar);
           }
         });
-        if (gameModeRef.current === 'review') {
+        if (gameModeRef.current === 'review' || gameModeRef.current === 'ranked') {
           setReport(fullReport);
         }
       } catch (err) {
@@ -312,6 +318,7 @@ export const App: React.FC = () => {
   const playMoveAudio = useCallback(
     (targetPly: number) => {
       if (!soundEnabled || targetPly === 0 || !report || !report.moves[targetPly - 1]) return;
+      if (isRankedActiveRef.current) return;
       const move = report.moves[targetPly - 1];
       if (move.classification === 'blunder') {
         sound.playBlunder();
@@ -680,6 +687,11 @@ export const App: React.FC = () => {
       const turn = moveResult.color;
       const piece = moveResult.piece;
       const captured = moveResult.captured;
+
+      // During active competitive ranked play, analysis and engine evaluations are strictly suppressed
+      if (isRankedActiveRef.current) {
+        return { cp: 0, mate: null, depth: 0, pv: [], bestMove: '' };
+      }
 
       // Stage 1: Instant 0ms heuristic update so EvalBar reacts immediately
       const cachedBefore = positionEvalCacheRef.current.get(fenBefore);
@@ -1270,7 +1282,9 @@ export const App: React.FC = () => {
     const liveMoveUci = `${sourceSquare}${targetSquare}${moveResult.promotion || ''}`;
     const liveTactics = neuralVoice.analyzeTactics(currentBoardFen, newFen, liveMoveUci);
     if (liveTactics && (liveTactics.type === 'checkmate' || liveTactics.type === 'fork')) {
-      neuralVoice.announceTactics(liveTactics);
+      if (!isRankedActive) {
+        neuralVoice.announceTactics(liveTactics);
+      }
     }
 
     if (gameMode === 'ranked' && activeRankedSession?.isOnlinePvP) {
@@ -1447,6 +1461,8 @@ export const App: React.FC = () => {
     gameAnalyzer.cancel();
     stockfish.clearQueue();
     setIsAnalyzing(false);
+    setIsAnalysisEnabled(false);
+    setMoveAccent(null);
     setIsPlaying(false);
     setGameOverMessage(null);
     setIsPreviewingLine(false);
@@ -2509,6 +2525,8 @@ export const App: React.FC = () => {
     gameAnalyzer.cancel();
     stockfish.clearQueue();
     setIsAnalyzing(false);
+    setIsAnalysisEnabled(false);
+    setMoveAccent(null);
     setIsPlaying(false);
     setGameOverMessage(null);
     setIsPreviewingLine(false);
@@ -2693,6 +2711,27 @@ export const App: React.FC = () => {
       }, 400);
     }
   }, [analysisDepth, currentUser.username, handleStartMistakeReplay, loadPgnIntoState, runAnalysis]);
+
+  const handleRunRankedPostGameAnalysis = useCallback(() => {
+    const sess = activeRankedSessionRef.current;
+    const opp = sess?.opponent;
+    const oppName = opp?.username || 'Соперник';
+    const myCol = sess?.myColor || playerColor;
+    const whitePlayer = myCol === 'w' ? currentUser.username : oppName;
+    const blackPlayer = myCol === 'w' ? oppName : currentUser.username;
+    const realPgn = buildPgnFromFens(fensRef.current, whitePlayer, blackPlayer, '*');
+
+    setIsAnalysisEnabled(true);
+    setGameMode('review');
+    const title = `Разбор: ${whitePlayer} vs ${blackPlayer}`;
+    setGameTitle(title);
+
+    if (realPgn) {
+      setCurrentPgn(realPgn);
+      loadPgnIntoState(realPgn, title);
+      runAnalysis(realPgn, analysisDepth);
+    }
+  }, [analysisDepth, currentUser.username, loadPgnIntoState, playerColor, runAnalysis]);
 
   const handleChangeMode = (newMode: GameMode) => {
     gameAnalyzer.cancel();
@@ -3148,8 +3187,8 @@ export const App: React.FC = () => {
             isAiThinking={isAiThinking}
             gameOverMessage={isMistakeReplayActive ? null : gameOverMessage}
             onRestartGame={() => handleReset()}
-            moveAccent={isMistakeReplayActive ? null : moveAccent}
-            showEngineArrows={!isMistakeReplayActive && gameMode !== 'ranked' && gameMode !== 'pvp' && !gameOverMessage}
+            moveAccent={isRankedActive || isMistakeReplayActive ? null : moveAccent}
+            showEngineArrows={!isRankedActive && !isMistakeReplayActive && gameMode !== 'ranked' && gameMode !== 'pvp' && !gameOverMessage}
             openingsArrow={isMistakeReplayActive ? null : openingsArrow}
             topPlayer={opponentBarInfo}
             bottomPlayer={playerBarInfo}
@@ -3179,7 +3218,7 @@ export const App: React.FC = () => {
             onRevealMistakeSolution={handleRevealMistakeSolution}
             onExitMistakeReplay={handleExitMistakeReplay}
             timeControlBadge={activeTimeControl?.label}
-            isAnalysisEnabled={isAnalysisEnabled}
+            isAnalysisEnabled={isRankedActive ? false : isAnalysisEnabled}
             isSpectating={isSpectating}
             onExitSpectate={handleExitSpectate}
             restrictPieceColor={gameMode === 'ranked' || gameMode === 'vs-ai'}
@@ -3235,7 +3274,7 @@ export const App: React.FC = () => {
                   mistakeCount={playerMistakes.length}
                   onStartMistakeReplay={handleStartMistakeReplay}
                   isAnalysisEnabled={false}
-                  onToggleAnalysis={handleToggleAnalysis}
+                  onToggleAnalysis={isRankedActive ? undefined : handleToggleAnalysis}
                   onOpenLoadModal={gameMode === 'review' ? () => setIsLoadModalOpen(true) : undefined}
                   activeMistake={activeMistake}
                   onNextMistake={handleNextMistake}
@@ -3244,11 +3283,46 @@ export const App: React.FC = () => {
                   onExitMistakeReplay={handleExitMistakeReplay}
                   isGameOver={Boolean(gameOverMessage)}
                   onRestartGame={() => handleReset()}
+                  gameOverMessage={gameOverMessage}
+                  onStartPostGameAnalysis={handleRunRankedPostGameAnalysis}
+                  isRankedActive={isRankedActive}
                 />
               </div>
 
               {/* Mobile Game Controls Dock (Replaces empty void on phones when analysis is OFF) */}
               <div className="block lg:hidden p-3 bg-[#111111] border-t border-[#262626] rounded-t-xl space-y-2.5 select-none font-mono">
+                {/* Post-game Analysis Banner on Mobile */}
+                {Boolean(gameOverMessage) && (
+                  <div className="p-3 bg-[#121c19] border border-[#1baca6]/40 rounded-xl space-y-2.5 shadow-md">
+                    <div className="flex items-center justify-between text-xs font-bold text-[#1baca6]">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-[#1baca6] shrink-0" />
+                        <span>Партия завершена</span>
+                      </div>
+                      <span className="text-[11px] text-zinc-300 font-semibold">{gameOverMessage?.split('•')[0] || ''}</span>
+                    </div>
+                    <p className="text-[11px] text-zinc-300 leading-relaxed">
+                      Глубокий анализ Stockfish: точность CAPS, зевки, график и озвучка ходов.
+                    </p>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={handleRunRankedPostGameAnalysis}
+                        className="flex-1 py-2 px-3 rounded-lg bg-[#1baca6] hover:bg-[#20c2bc] text-black font-bold text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
+                      >
+                        <Activity className="w-4 h-4" />
+                        <span>Анализ партии</span>
+                      </button>
+                      <button
+                        onClick={() => setIsMatchmakingOpen(true)}
+                        className="py-2 px-3 rounded-lg bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-zinc-200 text-xs flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Swords className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Новый соперник</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Top status bar */}
                 <div className="flex items-center justify-between px-2.5 py-1.5 bg-[#181818] border border-[#2A2A2A] rounded-md text-xs">
                   <div className="flex items-center gap-2">
@@ -3257,14 +3331,19 @@ export const App: React.FC = () => {
                       {currentPly % 2 === 0 ? 'Ход белых' : 'Ход черных'} • Ход {Math.floor(currentPly / 2) + 1}
                     </span>
                   </div>
-                  <button
-                    onClick={handleToggleAnalysis}
-                    className="px-2 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-[#1baca6] text-[11px] font-bold flex items-center gap-1 transition-colors"
-                    title="Включить анализ движком"
-                  >
-                    <Activity className="w-3 h-3" />
-                    <span>Вкл. анализ</span>
-                  </button>
+                  {!isRankedActive && !gameOverMessage && (
+                    <button
+                      onClick={handleToggleAnalysis}
+                      className="px-2 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-[#1baca6] text-[11px] font-bold flex items-center gap-1 transition-colors"
+                      title="Включить анализ движком"
+                    >
+                      <Activity className="w-3 h-3" />
+                      <span>Вкл. анализ</span>
+                    </button>
+                  )}
+                  {isRankedActive && !gameOverMessage && (
+                    <span className="text-[10px] text-zinc-500 font-mono">Рейтинг (анализ выкл.)</span>
+                  )}
                 </div>
 
                 {/* Action Buttons Grid */}

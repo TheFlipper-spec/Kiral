@@ -294,7 +294,7 @@ class MultiplayerService {
     this.myPlayer = player;
     this.isSearching = true;
 
-    const searchChannel = this.supabase.channel('kiral_matchmaking_queue', {
+    const searchChannel = this.supabase.channel(`kiral_matchmaking_queue_${timeControlId}`, {
       config: { broadcast: { self: false } }
     });
 
@@ -319,6 +319,8 @@ class MultiplayerService {
     searchChannel
       .on('broadcast', { event: 'search_ticket' }, async ({ payload }) => {
         if (!this.isSearching || !payload || payload.playerId === player.id) return;
+        // Strict queue isolation: only match players with the identical time control
+        if (payload.timeControlId !== timeControlId) return;
 
         // Found another candidate searching!
         // To prevent both clients creating conflicting rooms, the player with the lower ID coordinates
@@ -373,7 +375,7 @@ class MultiplayerService {
       })
       .on('broadcast', { event: 'match_created' }, ({ payload }) => {
         if (!this.isSearching || !payload) return;
-        if (payload.player2?.id === player.id) {
+        if (payload.player2?.id === player.id && payload.timeControlId === timeControlId) {
           cleanup();
           const session: RankedMatchSession = {
             roomId: payload.roomId,

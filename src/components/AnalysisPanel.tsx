@@ -18,7 +18,8 @@ import {
   Lightbulb,
   HelpCircle,
   CheckCircle2,
-  ArrowRight
+  ArrowRight,
+  ShieldAlert
 } from 'lucide-react';
 
 export interface AnalysisPanelProps {
@@ -51,6 +52,9 @@ export interface AnalysisPanelProps {
   onExitMistakeReplay?: () => void;
   isGameOver?: boolean;
   onRestartGame?: () => void;
+  gameOverMessage?: string | null;
+  onStartPostGameAnalysis?: () => void;
+  isRankedActive?: boolean;
 }
 
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
@@ -74,7 +78,10 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   onRevealMistakeSolution,
   onExitMistakeReplay,
   isGameOver = false,
-  onRestartGame
+  onRestartGame,
+  gameOverMessage = null,
+  onStartPostGameAnalysis,
+  isRankedActive = false
 }) => {
   const [activeTab, setActiveTab] = useState<'moves' | 'summary' | 'graph' | 'mistakes'>('moves');
   const [copiedPgn, setCopiedPgn] = useState<boolean>(false);
@@ -142,17 +149,42 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
 
         {/* Status Strip */}
         <div className="px-3 py-2 border-b border-[#262626] bg-[#111111] text-[11px] font-mono text-[#888888] flex items-center justify-between shrink-0">
-          <span>Чистая доска • Без подсказок движка</span>
-          <span className="text-[#1baca6] font-semibold">{report?.result || 'В игре'}</span>
+          <span>{isRankedActive ? 'Рейтинговый матч • Честная игра' : 'Чистая доска • Без подсказок движка'}</span>
+          <span className="text-[#1baca6] font-semibold">{gameOverMessage ? 'Завершена' : (report?.result || 'В игре')}</span>
         </div>
 
         {/* Zen Hub Content */}
         <div className="flex-1 p-3 sm:p-4 overflow-y-auto space-y-3">
+          {/* Post-Game Analysis Card (Shown when game ended in ranked/zen mode) */}
+          {(isGameOver || Boolean(gameOverMessage)) && (
+            <div className="bg-[#121c19] border border-[#1baca6]/40 rounded-xl p-3.5 space-y-2.5 shadow-md">
+              <div className="flex items-center justify-between text-xs font-mono font-bold text-[#1baca6]">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-[#1baca6] shrink-0" />
+                  <span>Партия завершена</span>
+                </div>
+                <span className="text-[11px] text-zinc-300 font-semibold">{gameOverMessage?.split('•')[0] || report?.result || 'Финал'}</span>
+              </div>
+              <p className="text-[11px] text-zinc-300 font-mono leading-relaxed">
+                Нажмите, чтобы провести глубокий разбор: точность CAPS, зевки, график преимущества и голосовой комментатор.
+              </p>
+              {(onStartPostGameAnalysis || onToggleAnalysis) && (
+                <button
+                  onClick={onStartPostGameAnalysis || onToggleAnalysis}
+                  className="w-full py-2.5 px-3 rounded-lg bg-[#1baca6] hover:bg-[#20c2bc] text-black font-mono font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer"
+                >
+                  <Activity className="w-4 h-4" />
+                  <span>Анализ партии</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Match Info Card */}
           <div className="bg-[#141414] border border-[#262626] rounded-xl p-3 space-y-2.5 shadow-sm">
             <div className="flex items-center justify-between text-xs font-mono">
               <span className="text-zinc-400">Статус партии:</span>
-              <span className="text-zinc-200 font-bold">{report?.result || 'Партия идет'}</span>
+              <span className="text-zinc-200 font-bold">{gameOverMessage || report?.result || 'Партия идет'}</span>
             </div>
             <div className="flex items-center justify-between text-xs font-mono">
               <span className="text-zinc-400">Всего ходов:</span>
@@ -181,7 +213,12 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
               Быстрые действия
             </span>
 
-            {onToggleAnalysis && (
+            {isRankedActive ? (
+              <div className="px-3 py-2 rounded-lg bg-[#141414] border border-[#262626] text-xs font-mono text-zinc-400 flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-zinc-500 shrink-0" />
+                <span>Анализ ходов отключен (рейтинговый матч)</span>
+              </div>
+            ) : onToggleAnalysis && !isGameOver && !gameOverMessage ? (
               <button
                 onClick={onToggleAnalysis}
                 className="w-full px-3 py-2.5 rounded-lg bg-[#181818] hover:bg-[#202020] border border-[#2d2d2d] hover:border-[#1baca6]/50 text-xs font-mono text-zinc-200 flex items-center justify-between transition-all group cursor-pointer"
@@ -192,7 +229,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
                 </div>
                 <span className="text-[10px] text-zinc-500 group-hover:text-zinc-300">Оценка и ошибки</span>
               </button>
-            )}
+            ) : null}
 
             {moves.length > 0 && (
               <button
