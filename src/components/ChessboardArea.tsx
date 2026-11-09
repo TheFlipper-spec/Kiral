@@ -245,9 +245,15 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       const chess = new Chess(fen);
       const piece = chess.get(source as Parameters<typeof chess.get>[0]);
       if (!piece || piece.type !== 'p') return false;
-      if (piece.color === 'w' && source[1] === '7' && target[1] === '8') return true;
-      if (piece.color === 'b' && source[1] === '2' && target[1] === '1') return true;
-      return false;
+      if (piece.color !== chess.turn()) return false;
+      const targetPiece = chess.get(target as Parameters<typeof chess.get>[0]);
+      // Never promote onto a friendly piece
+      if (targetPiece && targetPiece.color === piece.color) return false;
+      const isRank8 = piece.color === 'w' && source[1] === '7' && target[1] === '8';
+      const isRank1 = piece.color === 'b' && source[1] === '2' && target[1] === '1';
+      if (!isRank8 && !isRank1) return false;
+      const moves = chess.moves({ square: source as any, verbose: true });
+      return moves.some((m) => m.to === target);
     } catch {
       return false;
     }
@@ -325,9 +331,23 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       const chess = new Chess(fen);
       const clickedPiece = chess.get(square as Parameters<typeof chess.get>[0]);
 
-      // If a piece is already selected
+      // Priority 1: If clicking a piece of the active player's turn, ALWAYS select or toggle it!
+      // This prevents friendly pieces from ever being treated as promotion targets or blocked moves.
+      if (clickedPiece && clickedPiece.color === chess.turn()) {
+        if (restrictPieceColor && bottomPlayer && clickedPiece.color !== bottomPlayer.color) {
+          setSelectedSquare(null);
+          return;
+        }
+        if (selectedSquare === square) {
+          setSelectedSquare(null); // toggle off
+        } else {
+          setSelectedSquare(square); // switch to newly clicked piece
+        }
+        return;
+      }
+
+      // Priority 2: If a piece is already selected and user clicked a target square
       if (selectedSquare) {
-        // If clicking a legal target destination
         const isLegal = legalMoves.some((m) => m.to === square);
         if (isLegal) {
           if (isPawnPromotion(selectedSquare, square)) {
@@ -348,21 +368,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           }
         }
 
-        // If clicking another piece of the same color -> switch selection
-        if (clickedPiece && clickedPiece.color === chess.turn()) {
-          if (restrictPieceColor && bottomPlayer && clickedPiece.color !== bottomPlayer.color) {
-            setSelectedSquare(null);
-            return;
-          }
-          if (selectedSquare === square) {
-            setSelectedSquare(null); // toggle off
-          } else {
-            setSelectedSquare(square); // switch to newly clicked piece
-          }
-          return;
-        }
-
-        // Clicked elsewhere -> deselect
+        // Clicked invalid or unreachable square -> deselect
         setSelectedSquare(null);
         return;
       }
@@ -862,6 +868,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                       onClick={() => {
                         const { sourceSquare, targetSquare } = pendingPromotion;
                         setPendingPromotion(null);
+                        setSelectedSquare(null);
                         if (onPieceDrop) {
                           onPieceDrop(sourceSquare, targetSquare, p.type);
                         }

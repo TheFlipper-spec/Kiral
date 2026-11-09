@@ -5,7 +5,7 @@ import { MoveTableTab } from './MoveTableTab';
 import { SummaryTab } from './SummaryTab';
 import { EvalGraph } from './EvalGraph';
 import type { AnalysisProgress } from '../engine/gameAnalyzer';
-import { BarChart3, ListOrdered, XCircle, Upload, Activity } from 'lucide-react';
+import { BarChart3, ListOrdered, XCircle, Upload, Activity, Copy, Check } from 'lucide-react';
 
 interface AnalysisPanelProps {
   report: GameReport | null;
@@ -41,6 +41,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   onOpenLoadModal
 }) => {
   const [activeTab, setActiveTab] = useState<'summary' | 'moves'>('moves');
+  const [copiedPgn, setCopiedPgn] = useState<boolean>(false);
 
   const rawMoves = report?.moves || [];
   const moves = rawMoves.filter((m): m is MoveAnalysis => Boolean(m));
@@ -50,6 +51,152 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   const progressPct = progress
     ? Math.round((progress.currentPly / Math.max(1, progress.totalPlies)) * 100)
     : 0;
+
+  const handleCopyMovesText = () => {
+    try {
+      const pgnText = moves.map((m, idx) => {
+        const moveNum = Math.floor(idx / 2) + 1;
+        return idx % 2 === 0 ? `${moveNum}. ${m.san}` : m.san;
+      }).join(' ');
+      navigator.clipboard.writeText(pgnText);
+      setCopiedPgn(true);
+      setTimeout(() => setCopiedPgn(false), 2000);
+    } catch {}
+  };
+
+  // Zen Mode (when Analysis is toggled OFF by user)
+  if (!isAnalysisEnabled) {
+    const totalMovesCount = Math.ceil(moves.length / 2);
+    const activeMoveNum = Math.floor(currentPly / 2) + 1;
+    const activeMoveColor = currentPly % 2 === 1 ? 'Белые' : 'Черные';
+
+    return (
+      <div className="flex flex-col h-full bg-[#0E0E0E] border-l border-[#262626] overflow-hidden select-none">
+        {/* Header */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-[#262626] bg-[#121212] shrink-0 gap-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#1baca6]" />
+            <span className="text-xs font-mono font-bold text-[#EDEDED] uppercase tracking-wider">
+              Режим игры
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onToggleAnalysis && (
+              <button
+                onClick={onToggleAnalysis}
+                className="px-2 py-1 rounded text-[11px] font-mono transition-colors flex items-center gap-1 border bg-[#181818] text-[#777777] border-[#2a2a2a] hover:text-[#EDEDED] hover:border-[#444]"
+                title="Нажмите, чтобы включить анализ Stockfish и оценку"
+              >
+                <Activity className="w-3 h-3 shrink-0" strokeWidth={1.5} />
+                <span>Анализ: Выкл</span>
+              </button>
+            )}
+            {onOpenLoadModal && (
+              <button
+                onClick={onOpenLoadModal}
+                className="px-2 py-1 rounded bg-[#EDEDED] text-[#0A0A0A] hover:bg-white text-[11px] font-mono font-semibold transition-colors flex items-center gap-1 shadow-sm"
+                title="Загрузить партию PGN или FEN"
+              >
+                <Upload className="w-3 h-3 shrink-0" strokeWidth={1.5} />
+                <span>PGN</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Status Strip */}
+        <div className="px-3 py-2 border-b border-[#262626] bg-[#111111] text-[11px] font-mono text-[#888888] flex items-center justify-between shrink-0">
+          <span>Чистая доска • Без подсказок движка</span>
+          <span className="text-[#1baca6] font-semibold">{report?.result || 'В игре'}</span>
+        </div>
+
+        {/* Zen Hub Content */}
+        <div className="flex-1 p-3 sm:p-4 overflow-y-auto space-y-3">
+          {/* Match Info Card */}
+          <div className="bg-[#141414] border border-[#262626] rounded-xl p-3 space-y-2.5 shadow-sm">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-zinc-400">Статус партии:</span>
+              <span className="text-zinc-200 font-bold">{report?.result || 'Партия идет'}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-zinc-400">Всего ходов:</span>
+              <span className="text-zinc-200 font-bold">{totalMovesCount > 0 ? totalMovesCount : '—'}</span>
+            </div>
+            {currentPly > 0 && (
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="text-zinc-400">Текущий ход:</span>
+                <span className="text-[#1baca6] font-bold">
+                  {activeMoveNum}. {activeMoveColor} (ход {currentPly})
+                </span>
+              </div>
+            )}
+            {report?.whitePlayer && report?.blackPlayer && (
+              <div className="pt-2 border-t border-[#222222] flex items-center justify-between text-xs font-mono">
+                <span className="text-zinc-300 truncate max-w-[120px]">{report.whitePlayer}</span>
+                <span className="text-zinc-500 font-bold text-[10px]">VS</span>
+                <span className="text-zinc-300 truncate max-w-[120px]">{report.blackPlayer}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Actions */}
+          <div className="space-y-2">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 font-bold block px-1">
+              Быстрые действия
+            </span>
+
+            {onToggleAnalysis && (
+              <button
+                onClick={onToggleAnalysis}
+                className="w-full px-3 py-2.5 rounded-lg bg-[#181818] hover:bg-[#202020] border border-[#2d2d2d] hover:border-[#1baca6]/50 text-xs font-mono text-zinc-200 flex items-center justify-between transition-all group cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-[#1baca6] group-hover:scale-110 transition-transform" />
+                  <span>Включить анализ Stockfish</span>
+                </div>
+                <span className="text-[10px] text-zinc-500 group-hover:text-zinc-300">Оценка и ошибки</span>
+              </button>
+            )}
+
+            {moves.length > 0 && (
+              <button
+                onClick={handleCopyMovesText}
+                className="w-full px-3 py-2 rounded-lg bg-[#141414] hover:bg-[#1C1C1C] border border-[#262626] text-xs font-mono text-zinc-300 flex items-center justify-between transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  {copiedPgn ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 text-zinc-400" />
+                  )}
+                  <span>{copiedPgn ? 'Ходы скопированы!' : 'Скопировать нотацию ходов'}</span>
+                </div>
+                <span className="text-[10px] text-zinc-500 font-mono">{moves.length} п/х</span>
+              </button>
+            )}
+
+            {onOpenLoadModal && (
+              <button
+                onClick={onOpenLoadModal}
+                className="w-full px-3 py-2 rounded-lg bg-[#141414] hover:bg-[#1C1C1C] border border-[#262626] text-xs font-mono text-zinc-300 flex items-center justify-between transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Upload className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>Загрузить другую партию (PGN/FEN)</span>
+                </div>
+              </button>
+            )}
+          </div>
+
+          {/* Hint note */}
+          <div className="p-2.5 rounded-lg bg-[#121212] border border-[#222222] text-[11px] font-mono text-zinc-500 leading-relaxed">
+            Навигация по ходам доступна в ленте под доской. Анализ отключен для максимальной концентрации и комфортной игры без перегрузки интерфейса.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#0E0E0E] border-l border-[#262626] overflow-hidden select-none">
