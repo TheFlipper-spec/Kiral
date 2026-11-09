@@ -1785,6 +1785,8 @@ export const App: React.FC = () => {
 
   const handleOpponentResign = useCallback(() => {
     if (activeRankedSessionRef.current) {
+      localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+      userService.clearActiveGame();
       const opp = activeRankedSessionRef.current.opponent;
       const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'win');
       if (activeRankedSessionRef.current.isOnlinePvP) {
@@ -1818,6 +1820,8 @@ export const App: React.FC = () => {
 
   const handleOpponentTimeout = useCallback(() => {
     if (activeRankedSessionRef.current) {
+      localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+      userService.clearActiveGame();
       const opp = activeRankedSessionRef.current.opponent;
       const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'win');
       if (activeRankedSessionRef.current.isOnlinePvP) {
@@ -1903,6 +1907,8 @@ export const App: React.FC = () => {
 
   const handleOpponentDrawAccept = useCallback(() => {
     if (activeRankedSessionRef.current) {
+      localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+      userService.clearActiveGame();
       const opp = activeRankedSessionRef.current.opponent;
       const matchRes = userService.recordCompetitiveMatchResult(opp.elo, 'draw');
       if (activeRankedSessionRef.current.isOnlinePvP) {
@@ -1999,6 +2005,8 @@ export const App: React.FC = () => {
         setWhiteTime(nextW);
         if (nextW <= 0 && activeRankedSessionRef.current) {
           clearInterval(timer);
+          localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+          userService.clearActiveGame();
           const sess = activeRankedSessionRef.current;
           if (sess.myColor === 'w') {
             if (sess.isOnlinePvP) {
@@ -2029,6 +2037,8 @@ export const App: React.FC = () => {
         setBlackTime(nextB);
         if (nextB <= 0 && activeRankedSessionRef.current) {
           clearInterval(timer);
+          localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+          userService.clearActiveGame();
           const sess = activeRankedSessionRef.current;
           if (sess.myColor === 'b') {
             if (sess.isOnlinePvP) {
@@ -2092,14 +2102,33 @@ export const App: React.FC = () => {
         return;
       }
 
-      gameAnalyzer.cancel();
-      stockfish.clearQueue();
-      setIsAnalyzing(false);
-      setIsPlaying(false);
-      setGameOverMessage(null);
-
       if (saved.gameMode === 'ranked' && saved.session) {
         const session: RankedMatchSession = saved.session;
+        const wRestored =
+          typeof saved.whiteTime === 'number' ? saved.whiteTime : INITIAL_RANKED_TIME_SEC;
+        const bRestored =
+          typeof saved.blackTime === 'number' ? saved.blackTime : INITIAL_RANKED_TIME_SEC;
+        const elapsedSec = Math.max(
+          0,
+          Math.floor((Date.now() - (saved.lastTickTimestamp || Date.now())) / 1000)
+        );
+        const turn = chess.turn();
+        const nextWhite = turn === 'w' && session.isOnlinePvP ? wRestored - elapsedSec : wRestored;
+        const nextBlack = turn === 'b' && session.isOnlinePvP ? bRestored - elapsedSec : bRestored;
+
+        // Do not restore stale or expired ranked games (prevents instant false timeouts on reload)
+        if (elapsedSec > 120 || nextWhite <= 5 || nextBlack <= 5) {
+          localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+          userService.clearActiveGame();
+          return;
+        }
+
+        gameAnalyzer.cancel();
+        stockfish.clearQueue();
+        setIsAnalyzing(false);
+        setIsPlaying(false);
+        setGameOverMessage(null);
+
         setActiveRankedSession(session);
         multiplayerService.setCurrentSession(session);
         setGameMode('ranked');
@@ -2114,20 +2143,9 @@ export const App: React.FC = () => {
           });
         }
 
-        const wRestored =
-          typeof saved.whiteTime === 'number' ? saved.whiteTime : INITIAL_RANKED_TIME_SEC;
-        const bRestored =
-          typeof saved.blackTime === 'number' ? saved.blackTime : INITIAL_RANKED_TIME_SEC;
-
         if (session.isOnlinePvP) {
-          const elapsedSec = Math.max(
-            0,
-            Math.floor((Date.now() - (saved.lastTickTimestamp || Date.now())) / 1000)
-          );
-          const turn = chess.turn();
-
-          setWhiteTime(turn === 'w' ? Math.max(1, wRestored - elapsedSec) : wRestored);
-          setBlackTime(turn === 'b' ? Math.max(1, bRestored - elapsedSec) : bRestored);
+          setWhiteTime(nextWhite);
+          setBlackTime(nextBlack);
 
           multiplayerService.joinGameRoom(
             session.roomId,
@@ -2159,6 +2177,11 @@ export const App: React.FC = () => {
           }
         }
       } else if (saved.gameMode === 'vs-ai') {
+        gameAnalyzer.cancel();
+        stockfish.clearQueue();
+        setIsAnalyzing(false);
+        setIsPlaying(false);
+        setGameOverMessage(null);
         setGameMode('vs-ai');
         const color = saved.playerColor || 'w';
         setPlayerColor(color);
@@ -2502,10 +2525,26 @@ export const App: React.FC = () => {
         return;
       }
       setGameMode(newMode);
-      if (!activeRankedSession || Boolean(gameOverMessage)) {
+      if (!activeRankedSession || Boolean(gameOverMessage) || whiteTime <= 0 || blackTime <= 0 || gameMode === 'ranked') {
+        localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+        userService.clearActiveGame();
+        setActiveRankedSession(null);
+        setGameOverMessage(null);
+        const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+        fensRef.current = [startFen];
+        setFens([startFen]);
+        setCurrentPly(0);
+        currentPlyRef.current = 0;
+        setReport(null);
         setIsMatchmakingOpen(true);
       }
       return;
+    }
+
+    if (Boolean(gameOverMessage) || whiteTime <= 0 || blackTime <= 0) {
+      setActiveRankedSession(null);
+      localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+      userService.clearActiveGame();
     }
 
     setGameMode(newMode);
