@@ -5,7 +5,7 @@ import { MoveTableTab } from './MoveTableTab';
 import { SummaryTab } from './SummaryTab';
 import { EvalGraph } from './EvalGraph';
 import type { AnalysisProgress } from '../engine/gameAnalyzer';
-import { BarChart3, ListOrdered, XCircle } from 'lucide-react';
+import { BarChart3, ListOrdered, XCircle, Upload, Activity } from 'lucide-react';
 
 interface AnalysisPanelProps {
   report: GameReport | null;
@@ -20,6 +20,8 @@ interface AnalysisPanelProps {
   mistakeCount?: number;
   onStartMistakeReplay?: () => void;
   isAnalysisEnabled?: boolean;
+  onToggleAnalysis?: () => void;
+  onOpenLoadModal?: () => void;
 }
 
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
@@ -34,7 +36,9 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   hideEngineHints = false,
   mistakeCount = 0,
   onStartMistakeReplay,
-  isAnalysisEnabled = true
+  isAnalysisEnabled = true,
+  onToggleAnalysis,
+  onOpenLoadModal
 }) => {
   const [activeTab, setActiveTab] = useState<'summary' | 'moves'>('moves');
 
@@ -79,11 +83,11 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
       )}
 
       {/* Tabs Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[#262626] bg-[#121212] shrink-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[#262626] bg-[#121212] shrink-0 gap-2">
         <div className="flex items-center gap-1">
           <button
             onClick={() => setActiveTab('moves')}
-            className={`px-3 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+            className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors border ${
               activeTab === 'moves'
                 ? 'bg-[#1E1E1E] border-[#383838] text-[#EDEDED]'
                 : 'border-transparent text-[#777777] hover:text-[#CCCCCC]'
@@ -94,7 +98,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('summary')}
-            className={`px-3 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+            className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors border ${
               activeTab === 'summary'
                 ? 'bg-[#1E1E1E] border-[#383838] text-[#EDEDED]'
                 : 'border-transparent text-[#777777] hover:text-[#CCCCCC]'
@@ -105,11 +109,41 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           </button>
         </div>
 
-        {report && (
-          <div className="text-[11px] font-mono text-[#777777] truncate max-w-[140px]">
-            {report.result}
-          </div>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onToggleAnalysis && (
+            <button
+              onClick={onToggleAnalysis}
+              className={`px-2 py-1 rounded text-[11px] font-mono transition-colors flex items-center gap-1 border ${
+                isAnalysisEnabled
+                  ? 'bg-[#1baca6]/15 text-[#1baca6] border-[#1baca6]/40 hover:bg-[#1baca6]/25'
+                  : 'bg-[#181818] text-[#777777] border-[#2a2a2a] hover:text-[#EDEDED]'
+              }`}
+              title={
+                isAnalysisEnabled
+                  ? 'Анализ ходов включен (нажмите, чтобы отключить)'
+                  : 'Анализ ходов отключен (нажмите, чтобы включить)'
+              }
+            >
+              <Activity className="w-3 h-3 shrink-0" strokeWidth={1.5} />
+              <span>{isAnalysisEnabled ? 'Анализ: Вкл' : 'Анализ: Выкл'}</span>
+            </button>
+          )}
+          {onOpenLoadModal && (
+            <button
+              onClick={onOpenLoadModal}
+              className="px-2 py-1 rounded bg-[#EDEDED] text-[#0A0A0A] hover:bg-white text-[11px] font-mono font-semibold transition-colors flex items-center gap-1 shadow-sm"
+              title="Загрузить партию PGN или FEN"
+            >
+              <Upload className="w-3 h-3 shrink-0" strokeWidth={1.5} />
+              <span>PGN</span>
+            </button>
+          )}
+          {report && !onOpenLoadModal && (
+            <div className="text-[11px] font-mono text-[#777777] truncate max-w-[90px]">
+              {report.result}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Engine Line Box */}

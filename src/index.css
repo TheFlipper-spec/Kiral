@@ -85,25 +85,19 @@ body {
 
 @media (min-width: 1024px) {
   .kiral-board-container {
-    max-width: min(calc(100vw - 470px), calc(100vh - 175px));
+    max-width: min(calc(100vw - 490px), calc(100vh - 165px));
   }
 }
 
 @media (min-width: 1440px) {
   .kiral-board-container {
-    max-width: min(calc(100vw - 510px), calc(100vh - 175px));
-  }
-}
-
-@media (min-width: 1920px) {
-  .kiral-board-container {
-    max-width: min(calc(100vw - 540px), calc(100vh - 165px));
+    max-width: min(calc(100vw - 530px), calc(100vh - 160px));
   }
 }
 
 @media (max-width: 767px) and (orientation: portrait) {
   .kiral-board-container {
-    max-width: min(96vw, calc(52vh - 14px));
+    max-width: min(96vw, calc(50vh - 16px));
   }
 }
 

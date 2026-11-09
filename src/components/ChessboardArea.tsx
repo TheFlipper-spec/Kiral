@@ -166,6 +166,9 @@ interface ChessboardAreaProps {
   isAnalysisEnabled?: boolean;
   isSpectating?: boolean;
   onExitSpectate?: () => void;
+  restrictPieceColor?: boolean;
+  moves?: MoveAnalysis[];
+  onSelectPly?: (ply: number) => void;
 }
 
 export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
@@ -214,9 +217,13 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   timeControlBadge,
   isAnalysisEnabled = true,
   isSpectating = false,
-  onExitSpectate
+  onExitSpectate,
+  restrictPieceColor = false,
+  moves = [],
+  onSelectPly
 }) => {
   const boardContainerRef = useRef<HTMLDivElement>(null);
+  const mobileRibbonRef = useRef<HTMLDivElement>(null);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [isDismissedGameOver, setIsDismissedGameOver] = useState<boolean>(false);
   const [mistakeMode, setMistakeMode] = useState<'review' | 'solve'>('review');
@@ -256,6 +263,16 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     setSelectedSquare(null);
   }, [fen]);
 
+  // Auto-scroll mobile move ribbon to active ply
+  useEffect(() => {
+    if (mobileRibbonRef.current) {
+      const activeBtn = mobileRibbonRef.current.querySelector('[data-active-ply="true"]') as HTMLElement | null;
+      if (activeBtn) {
+        activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
+  }, [currentPly]);
+
   // Calculate all legal moves for the selected piece
   const legalMoves = useMemo(() => {
     if (!selectedSquare) return [];
@@ -263,7 +280,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       const chess = new Chess(fen);
       const piece = chess.get(selectedSquare as Parameters<typeof chess.get>[0]);
       if (!piece || piece.color !== chess.turn()) return [];
-      if (bottomPlayer && topPlayer && piece.color !== bottomPlayer.color) return [];
+      if (restrictPieceColor && bottomPlayer && piece.color !== bottomPlayer.color) return [];
 
       const verboseMoves = chess.moves({
         square: selectedSquare as Parameters<typeof chess.moves>[0]['square'],
@@ -277,7 +294,25 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     } catch {
       return [];
     }
-  }, [fen, selectedSquare]);
+  }, [fen, selectedSquare, restrictPieceColor, bottomPlayer?.color]);
+
+  // Select piece on drag start so legal move dots & capture rings always appear immediately
+  const handlePieceDragSelect = (square: string) => {
+    if (isSpectating || !onPieceDrop) return;
+    if (activeMistake && mistakeMode === 'review') {
+      setMistakeMode('solve');
+    }
+    try {
+      const chess = new Chess(fen);
+      const piece = chess.get(square as Parameters<typeof chess.get>[0]);
+      if (piece && piece.color === chess.turn()) {
+        if (restrictPieceColor && bottomPlayer && piece.color !== bottomPlayer.color) {
+          return;
+        }
+        setSelectedSquare(square);
+      }
+    } catch {}
+  };
 
   // Handle square clicks for click-to-move
   const handleSquareClick = (square: string) => {
@@ -315,6 +350,10 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
 
         // If clicking another piece of the same color -> switch selection
         if (clickedPiece && clickedPiece.color === chess.turn()) {
+          if (restrictPieceColor && bottomPlayer && clickedPiece.color !== bottomPlayer.color) {
+            setSelectedSquare(null);
+            return;
+          }
           if (selectedSquare === square) {
             setSelectedSquare(null); // toggle off
           } else {
@@ -330,7 +369,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
 
       // No piece selected yet -> select if piece belongs to current turn
       if (clickedPiece && clickedPiece.color === chess.turn()) {
-        if (bottomPlayer && topPlayer && clickedPiece.color !== bottomPlayer.color) {
+        if (restrictPieceColor && bottomPlayer && clickedPiece.color !== bottomPlayer.color) {
           return;
         }
         setSelectedSquare(square);
@@ -514,7 +553,8 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   }
   if (selectedSquare) {
     customSquareStyles[selectedSquare] = {
-      backgroundColor: 'rgba(255, 255, 255, 0.22)'
+      backgroundColor: 'rgba(27, 172, 166, 0.35)',
+      boxShadow: 'inset 0 0 0 2px rgba(27, 172, 166, 0.9)'
     };
   }
   if (inCheckSquare && !inCheckmateSquare) {
@@ -733,6 +773,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               position: fen,
               boardOrientation: isFlipped ? 'black' : 'white',
               allowDragging: !isSpectating,
+              dragActivationDistance: 5,
               canDragPiece: ({ piece }) => {
                 if (isSpectating) return false;
                 if (!piece || !piece.pieceType) return false;
@@ -741,7 +782,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                   const chess = new Chess(fen);
                   if (pieceColor !== chess.turn()) return false;
                 } catch {}
-                if (canResign && bottomPlayer && topPlayer && bottomPlayer.color) {
+                if (restrictPieceColor && bottomPlayer && bottomPlayer.color) {
                   if (pieceColor !== bottomPlayer.color) {
                     return false;
                   }
@@ -751,8 +792,8 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               onSquareClick: ({ square }) => {
                 handleSquareClick(square);
               },
-              onPieceClick: ({ square }) => {
-                if (square) handleSquareClick(square);
+              onPieceDrag: ({ square }) => {
+                if (square) handlePieceDragSelect(square);
               },
               onPieceDrop: ({ sourceSquare, targetSquare }) => {
                 if (isSpectating) return false;
@@ -866,10 +907,10 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               >
                 {m.isCapture ? (
                   // Capture ring
-                  <div className="w-[80%] h-[80%] rounded-full border-[3px] border-white/40 group-hover:border-white/90 group-hover:scale-105 transition-all" />
+                  <div className="w-[82%] h-[82%] rounded-full border-[3.5px] border-[#1baca6]/90 bg-[#1baca6]/15 group-hover:border-[#1baca6] group-hover:bg-[#1baca6]/30 group-hover:scale-105 transition-all shadow-[0_0_8px_rgba(0,0,0,0.4)]" />
                 ) : (
                   // Empty square destination dot
-                  <div className="w-[28%] h-[28%] rounded-full bg-white/40 group-hover:bg-white/90 group-hover:scale-125 transition-all shadow-sm" />
+                  <div className="w-[30%] h-[30%] rounded-full bg-[#1baca6]/85 border border-black/35 group-hover:bg-[#1baca6] group-hover:scale-125 transition-all shadow-[0_1px_5px_rgba(0,0,0,0.45)]" />
                 )}
               </div>
             );
@@ -1355,6 +1396,39 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
         </div>
       )}
 
+      {/* Mobile Horizontal Move Ribbon (compact 1-line move strip on phones) */}
+      {moves && moves.length > 0 && onSelectPly && !activeMistake && (
+        <div
+          ref={mobileRibbonRef}
+          className={`${boardWidthClass} lg:hidden landscape:hidden mt-0.5 flex items-center gap-1 overflow-x-auto no-scrollbar px-2 py-1 bg-[#111111] border border-[#242424] rounded-md text-[11px] font-mono shrink-0`}
+        >
+          {moves.filter(Boolean).map((m) => {
+            const isActive = currentPly === m.ply;
+            const isWhite = m.turn === 'w';
+            return (
+              <React.Fragment key={m.ply}>
+                {isWhite && (
+                  <span className="text-[#666666] pl-1 select-none shrink-0">
+                    {m.moveNumber}.
+                  </span>
+                )}
+                <button
+                  onClick={() => onSelectPly(m.ply)}
+                  data-active-ply={isActive ? 'true' : undefined}
+                  className={`px-1.5 py-0.5 rounded transition-colors shrink-0 ${
+                    isActive
+                      ? 'bg-[#1baca6]/25 text-[#1baca6] font-bold border border-[#1baca6]/50'
+                      : 'text-[#CCCCCC] hover:bg-[#1E1E1E]'
+                  }`}
+                >
+                  {m.san}
+                </button>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
+
       {/* Navigation & Controls Bar */}
       <div className={`${boardWidthClass} mt-0.5 sm:mt-1 flex items-center justify-between px-2 py-0.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0`}>
         {/* Left: Move Counter or AI Thinking Status */}
@@ -1417,7 +1491,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           </button>
         </div>
 
-        {/* Right: Board options (Flip & Sound & Result) */}
+        {/* Right: Board options (Flip, Sound, Reset, Result) */}
         <div className="flex items-center gap-0.5 sm:gap-1 min-w-[50px] sm:min-w-[80px] justify-end">
           {gameOverMessage && isDismissedGameOver && (
             <button
@@ -1427,6 +1501,15 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             >
               <Eye className="w-3 h-3" />
               <span className="hidden sm:inline">Итог</span>
+            </button>
+          )}
+          {onRestartGame && !isSpectating && (
+            <button
+              onClick={onRestartGame}
+              className="p-1.5 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white transition-colors"
+              title="Сброс / Новая партия"
+            >
+              <RotateCw className="w-4 h-4" strokeWidth={1.5} />
             </button>
           )}
           <button

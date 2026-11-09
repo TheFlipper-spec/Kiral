@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Upload, RotateCcw, BookOpen, Swords, Users, Trophy, User, Download, GraduationCap, Undo2, Activity } from 'lucide-react';
+import React from 'react';
+import { BookOpen, Swords, Users, Trophy, User, GraduationCap } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
 import type { ScoreDeltaData } from './ScoreDeltaNotification';
@@ -38,41 +38,14 @@ export const Header: React.FC<HeaderProps> = ({
   onChangePlayerColor,
   aiDifficultyId,
   onChangeAiDifficulty,
-  onOpenLoadModal,
   onReset,
   isEngineReady,
   isAiThinking,
   currentUser,
   scoreDelta,
   onOpenLeaderboard,
-  onOpenAuth,
-  canUndoMove = false,
-  onUndoMove,
-  isAnalysisEnabled = true,
-  onToggleAnalysis
+  onOpenAuth
 }) => {
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
-
-  useEffect(() => {
-    const handler = (e: any) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
-
-  const handleInstallClick = async () => {
-    if (installPrompt) {
-      installPrompt.prompt();
-      const res = await installPrompt.userChoice;
-      if (res.outcome === 'accepted') {
-        setInstallPrompt(null);
-      }
-    } else {
-      alert('Чтобы скачать сайт как приложение:\n• На Android: нажмите меню браузера (⋮) -> «Установить приложение»\n• На iPhone/iPad: нажмите «Поделиться» (квадрат со стрелкой) -> «На экран «Домой»»\n• На ПК в Chrome: значок установки в адресной строке справа');
-    }
-  };
 
   const renderModeButtons = (isMobileBar = false) => (
     <div
@@ -221,27 +194,6 @@ export const Header: React.FC<HeaderProps> = ({
                   ))}
                 </select>
               </div>
-
-              {onUndoMove && (
-                <button
-                  onClick={onUndoMove}
-                  disabled={!canUndoMove}
-                  className="p-1.5 sm:px-2 sm:py-1 rounded text-xs font-mono text-[#f0c15c] hover:text-[#ffd875] bg-[#161616] border border-[#262626] hover:bg-[#202020] disabled:opacity-35 transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
-                  title="Отменить ход (Ctrl+Z)"
-                >
-                  <Undo2 className="w-3.5 h-3.5" strokeWidth={1.5} />
-                  <span className="hidden xl:inline">Отмена</span>
-                </button>
-              )}
-
-              <button
-                onClick={onReset}
-                className="p-1.5 sm:px-2.5 sm:py-1 rounded text-xs font-mono text-[#CCCCCC] hover:text-white bg-[#161616] border border-[#262626] hover:bg-[#202020] transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
-                title="Начать новую партию против ИИ"
-              >
-                <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} />
-                <span className="hidden lg:inline">Заново</span>
-              </button>
             </>
           )}
 
@@ -255,106 +207,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Поиск игры</span>
             </button>
           )}
-
-          {gameMode === 'pvp' && (
-            <>
-              {onUndoMove && (
-                <button
-                  onClick={onUndoMove}
-                  disabled={!canUndoMove}
-                  className="p-1.5 sm:px-2 sm:py-1 rounded text-xs font-mono text-[#f0c15c] hover:text-[#ffd875] bg-[#161616] border border-[#262626] hover:bg-[#202020] disabled:opacity-35 transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
-                  title="Отменить ход (Ctrl+Z)"
-                >
-                  <Undo2 className="w-3.5 h-3.5" strokeWidth={1.5} />
-                  <span className="hidden sm:inline">Отмена</span>
-                </button>
-              )}
-              <button
-                onClick={onReset}
-                className="px-2 py-1 rounded text-xs font-mono text-[#CCCCCC] hover:text-white bg-[#161616] border border-[#262626] hover:bg-[#202020] transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
-                title="Начать новую партию 1 на 1"
-              >
-                <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} />
-                <span className="hidden sm:inline">Заново</span>
-              </button>
-            </>
-          )}
-
-          {gameMode === 'puzzles' && (
-            <button
-              onClick={onReset}
-              className="px-2 py-1 rounded text-xs font-mono text-[#CCCCCC] hover:text-white bg-[#161616] border border-[#262626] hover:bg-[#202020] transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
-              title="Загрузить случайную задачу"
-            >
-              <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} />
-              <span className="hidden sm:inline">Следующая</span>
-            </button>
-          )}
-
-          {gameMode === 'review' && (
-            <>
-              {onUndoMove && (
-                <button
-                  onClick={onUndoMove}
-                  disabled={!canUndoMove}
-                  className="hidden sm:flex p-1.5 sm:px-2 sm:py-1 rounded text-xs font-mono text-[#f0c15c] hover:text-[#ffd875] hover:bg-[#161616] border border-[#222222] disabled:opacity-35 transition-colors items-center gap-1 whitespace-nowrap shrink-0"
-                  title="Отменить ход (Ctrl+Z)"
-                >
-                  <Undo2 className="w-3.5 h-3.5" strokeWidth={1.5} />
-                  <span className="hidden xl:inline">Отмена</span>
-                </button>
-              )}
-              <button
-                onClick={onReset}
-                className="p-1.5 sm:px-2 sm:py-1 rounded text-xs font-mono text-[#888888] hover:text-[#EDEDED] hover:bg-[#161616] border border-[#222222] transition-colors flex items-center gap-1 whitespace-nowrap shrink-0"
-                title="Сбросить к началу партии"
-              >
-                <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} />
-                <span className="hidden xl:inline">Сброс</span>
-              </button>
-
-              <button
-                onClick={onOpenLoadModal}
-                className="px-2 sm:px-2.5 py-1 rounded bg-[#EDEDED] text-[#0A0A0A] hover:bg-white text-xs font-mono font-semibold transition-colors flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0"
-              >
-                <Upload className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
-                <span className="hidden sm:inline">Загрузить PGN</span>
-                <span className="sm:hidden">PGN</span>
-              </button>
-            </>
-          )}
-
-          <div className="h-4 w-[1px] bg-[#262626] hidden sm:block shrink-0" />
-
-          {/* Move Analysis Toggle Button */}
-          {onToggleAnalysis && (
-            <button
-              onClick={onToggleAnalysis}
-              className={`p-1.5 sm:px-2 sm:py-1 rounded text-xs font-mono transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 border ${
-                isAnalysisEnabled
-                  ? 'bg-[#1baca6]/15 text-[#1baca6] border-[#1baca6]/40 hover:bg-[#1baca6]/25'
-                  : 'bg-[#181818] text-[#777777] border-[#2a2a2a] hover:text-[#EDEDED]'
-              }`}
-              title={
-                isAnalysisEnabled
-                  ? 'Анализ ходов включен (кликните, чтобы отключить)'
-                  : 'Анализ ходов отключен (кликните, чтобы включить)'
-              }
-            >
-              <Activity className="w-3.5 h-3.5" strokeWidth={1.5} />
-              <span className="hidden xl:inline">Анализ: {isAnalysisEnabled ? 'Вкл' : 'Выкл'}</span>
-            </button>
-          )}
-
-          {/* Install PWA App button */}
-          <button
-            onClick={handleInstallClick}
-            className="p-1.5 sm:px-2 sm:py-1 rounded text-[#CCCCCC] hover:text-[#1baca6] hover:bg-[#1C1C1C] border border-[#262626] transition-colors flex items-center gap-1 text-xs font-mono whitespace-nowrap shrink-0"
-            title="Скачать / установить сайт как приложение"
-          >
-            <Download className="w-3.5 h-3.5 text-[#1baca6]" strokeWidth={1.5} />
-            <span className="hidden 2xl:inline">Приложение</span>
-          </button>
 
           {/* Leaderboard button */}
           <button

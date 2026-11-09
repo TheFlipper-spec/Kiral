@@ -1144,6 +1144,11 @@ export const App: React.FC = () => {
     const nextPly = currentPly + 1;
     setCurrentPly(nextPly);
 
+    // In 1v1 PvP mode, auto-flip the board so the player whose turn is next is always at the bottom
+    if (gameMode === 'pvp' && !chess.isGameOver()) {
+      setIsFlipped(chess.turn() === 'b');
+    }
+
     // Apply Fischer increment for the moving player
     if (activeTimeControl?.incrementSeconds && activeTimeControl.incrementSeconds > 0) {
       if (playerColor === 'w') {
@@ -1533,6 +1538,12 @@ export const App: React.FC = () => {
     currentPlyRef.current = targetPly;
     setFens(nextFens);
     setCurrentPly(targetPly);
+    if (gameMode === 'pvp') {
+      const targetFenStr = nextFens[targetPly] || nextFens[nextFens.length - 1];
+      try {
+        setIsFlipped(new Chess(targetFenStr).turn() === 'b');
+      } catch {}
+    }
 
     setReport((prev) => {
       if (!prev) return prev;
@@ -1897,6 +1908,18 @@ export const App: React.FC = () => {
       setCurrentUser({ ...userService.getCurrentUser() });
       setGameOverMessage('Вы сдались в тренировочном матче');
       sound.playDefeat();
+    } else if (gameMode === 'pvp') {
+      const latestFen = fensRef.current[currentPlyRef.current] || fensRef.current[fensRef.current.length - 1];
+      let turn: 'w' | 'b' = 'w';
+      try {
+        turn = new Chess(latestFen).turn();
+      } catch {}
+      if (turn === 'w') {
+        setGameOverMessage('Белые сдались • Победили Черные (0 - 1)');
+      } else {
+        setGameOverMessage('Черные сдались • Победили Белые (1 - 0)');
+      }
+      sound.playVictory();
     }
   }, [gameOverMessage, gameMode, activeRankedSession]);
 
@@ -2740,6 +2763,15 @@ export const App: React.FC = () => {
         isTurn: !gameOverMessage && currentTurnColor === myColor
       };
     }
+    if (gameMode === 'review') {
+      return {
+        name: myColor === 'w' ? (report?.whitePlayer || 'Белые') : (report?.blackPlayer || 'Черные'),
+        isAi: false,
+        color: myColor,
+        timeRemaining: null,
+        isTurn: !gameOverMessage && currentTurnColor === myColor
+      };
+    }
     return {
       id: currentUser.id,
       name: currentUser.username,
@@ -2924,7 +2956,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      <main className="flex-1 grid grid-cols-1 grid-rows-[auto_1fr] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[1fr_450px] xl:grid-cols-[1fr_490px] overflow-hidden">
+      <main className="flex-1 w-full max-w-[1440px] mx-auto grid grid-cols-1 grid-rows-[auto_1fr] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[minmax(0,1fr)_440px] xl:grid-cols-[minmax(0,1fr)_470px] lg:gap-4 xl:gap-6 lg:px-4 xl:px-6 lg:py-2.5 overflow-hidden">
         <section className="relative h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A] px-1 py-1 sm:p-2">
           <ChessboardArea
             fen={currentFen}
@@ -2957,9 +2989,18 @@ export const App: React.FC = () => {
             topPlayer={opponentBarInfo}
             bottomPlayer={playerBarInfo}
             isOpponentFriend={isOpponentFriend}
-            onToggleOpponentFriend={handleToggleOpponentFriend}
-            onOpenTopPlayerProfile={handleOpenOpponentProfile}
-            canResign={!isMistakeReplayActive && (gameMode === 'ranked' || gameMode === 'vs-ai') && !gameOverMessage && fens.length > 1}
+            onToggleOpponentFriend={
+              gameMode === 'ranked' && activeRankedSession?.isOnlinePvP ? handleToggleOpponentFriend : undefined
+            }
+            onOpenTopPlayerProfile={
+              gameMode === 'ranked' && activeRankedSession?.isOnlinePvP ? handleOpenOpponentProfile : undefined
+            }
+            canResign={
+              !isMistakeReplayActive &&
+              (gameMode === 'ranked' || gameMode === 'vs-ai' || gameMode === 'pvp') &&
+              !gameOverMessage &&
+              fens.length > 1
+            }
             onResignGame={handleResignCurrentGame}
             canOfferDraw={!isMistakeReplayActive && (gameMode === 'vs-ai' || gameMode === 'ranked' || gameMode === 'pvp') && !gameOverMessage && fens.length > 4}
             onOfferDraw={handleOfferDraw}
@@ -2976,10 +3017,13 @@ export const App: React.FC = () => {
             isAnalysisEnabled={isAnalysisEnabled}
             isSpectating={isSpectating}
             onExitSpectate={handleExitSpectate}
+            restrictPieceColor={gameMode === 'ranked' || gameMode === 'vs-ai'}
+            moves={(report?.moves || []).filter((m): m is MoveAnalysis => Boolean(m))}
+            onSelectPly={handleSelectPly}
           />
         </section>
 
-        <section className="h-full overflow-hidden">
+        <section className="h-full overflow-hidden lg:rounded-xl lg:border lg:border-[#262626] lg:shadow-2xl">
           {gameMode === 'learn' || gameMode === 'puzzles' ? (
             <LearnPanel
               activeTab={activeLearnTab}
@@ -3023,6 +3067,8 @@ export const App: React.FC = () => {
               mistakeCount={playerMistakes.length}
               onStartMistakeReplay={handleStartMistakeReplay}
               isAnalysisEnabled={isAnalysisEnabled}
+              onToggleAnalysis={handleToggleAnalysis}
+              onOpenLoadModal={gameMode === 'review' ? () => setIsLoadModalOpen(true) : undefined}
             />
           )}
         </section>
