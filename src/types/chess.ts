@@ -209,7 +209,8 @@ export const AI_DIFFICULTIES: AiDifficultyConfig[] = [
   { id: 'fast', name: 'Быстрый', depth: 6, skillLevel: 7, eloApprox: 1300 },
   { id: 'club', name: 'Клубный', depth: 10, skillLevel: 12, eloApprox: 1600 },
   { id: 'expert', name: 'Эксперт', depth: 14, skillLevel: 17, eloApprox: 2000 },
-  { id: 'master', name: 'Гроссмейстер', depth: 18, skillLevel: 20, eloApprox: 2500 }
+  { id: 'master', name: 'Гроссмейстер', depth: 18, skillLevel: 20, eloApprox: 2500 },
+  { id: 'impossible', name: 'Невозможно', depth: 24, skillLevel: 20, eloApprox: 3600 }
 ];
 
 export type TimeControlId = 'blitz_3_2' | 'blitz_5_0' | 'rapid_10_0' | 'classical_15_10';

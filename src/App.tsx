@@ -423,8 +423,10 @@ export const App: React.FC = () => {
 
         if (voiceAnnouncement) {
           sound.speak(voiceAnnouncement);
+          return voiceAnnouncement;
         }
       }
+      return null;
     },
     [soundEnabled, report, fens, isAnalysisEnabled, gameMode, gameOverMessage, isMistakeReplayActive]
   );
@@ -440,26 +442,40 @@ export const App: React.FC = () => {
     [fens.length, playMoveAudio]
   );
 
-  // Autoplay timer for review mode
+  // Autoplay timer with intelligent speech pacing for review mode
   useEffect(() => {
-    let timer: number | null = null;
-    if (isPlaying) {
-      timer = window.setInterval(() => {
-        setCurrentPly((prev) => {
-          if (prev >= fens.length - 1) {
-            setIsPlaying(false);
-            return prev;
-          }
-          const next = prev + 1;
-          playMoveAudio(next);
-          return next;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
+    if (!isPlaying) return;
+    let isCancelled = false;
+    let timerId: number | null = null;
+
+    const scheduleNext = () => {
+      if (isCancelled) return;
+      setCurrentPly((current) => {
+        if (current >= fens.length - 1) {
+          setIsPlaying(false);
+          return current;
+        }
+        const nextPly = current + 1;
+        const spokenText = playMoveAudio(nextPly);
+
+        // Intelligent speech pacing: allow Russian voice commentary to finish speaking completely
+        let delayMs = 2200;
+        if (soundEnabled && spokenText) {
+          delayMs = Math.max(3200, Math.min(6800, spokenText.length * 85 + 800));
+        }
+
+        timerId = window.setTimeout(scheduleNext, delayMs);
+        return nextPly;
+      });
     };
-  }, [isPlaying, fens.length, playMoveAudio]);
+
+    timerId = window.setTimeout(scheduleNext, 800);
+
+    return () => {
+      isCancelled = true;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [isPlaying, fens.length, playMoveAudio, soundEnabled]);
 
   // Mistakes extraction for Mistake Replay (Работа над ошибками)
   const playerMistakes = useMemo(
@@ -2916,9 +2932,10 @@ export const App: React.FC = () => {
       };
     }
     if (gameMode === 'vs-ai') {
+      const isImpossible = currentAiDiff.id === 'impossible';
       return {
         id: `ai-${currentAiDiff.id}`,
-        name: `Stockfish (${currentAiDiff.name})`,
+        name: isImpossible ? 'Stockfish 19 (Невозможно)' : `Stockfish (${currentAiDiff.name})`,
         elo: currentAiDiff.eloApprox,
         isAi: true,
         color: opponentColor,

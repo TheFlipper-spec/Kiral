@@ -193,7 +193,7 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   {AI_DIFFICULTIES.map((d) => (
                     <option key={d.id} value={d.id} className="bg-[#141414] text-[#EDEDED]" title={`${d.name} (${d.eloApprox})`}>
-                      {d.eloApprox}
+                      {d.id === 'impossible' ? '3600 (Невозможно)' : d.eloApprox}
                     </option>
                   ))}
                 </select>
