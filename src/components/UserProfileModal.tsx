@@ -130,23 +130,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     }
   }, [isOpen, targetUser]);
 
-  if (!isOpen || !targetUser) return null;
-
   const displayedUser = liveUser || targetUser;
-  const isMe = displayedUser.id === currentUser.id;
-  const friendshipStatus = userService.getFriendshipStatus(displayedUser.id, displayedUser.username);
-  const liveGame = multiplayerService.getLiveGameForUser(displayedUser.id || displayedUser.username);
-
-  const totalGames = displayedUser.stats?.totalGames || 0;
-  const wins = displayedUser.stats?.wins || 0;
-  const losses = displayedUser.stats?.losses || 0;
-  const draws = displayedUser.stats?.draws || 0;
-  const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
 
   const rankedMatches = useMemo(() => {
-    const history = displayedUser.matchHistory || [];
+    const history = displayedUser?.matchHistory || [];
     return history.filter((m) => m.gameMode === 'ranked');
-  }, [displayedUser.matchHistory]);
+  }, [displayedUser?.matchHistory]);
 
   const modeStats = useMemo(() => {
     const categories: Record<'bullet' | 'blitz' | 'rapid' | 'classical', { label: string; wins: number; losses: number; draws: number; total: number }> = {
@@ -177,6 +166,18 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
     return categories;
   }, [rankedMatches]);
+
+  if (!isOpen || !targetUser || !displayedUser) return null;
+
+  const isMe = displayedUser.id === currentUser.id;
+  const friendshipStatus = userService.getFriendshipStatus(displayedUser.id, displayedUser.username);
+  const liveGame = multiplayerService.getLiveGameForUser(displayedUser.id || displayedUser.username);
+
+  const totalGames = displayedUser.stats?.totalGames || 0;
+  const wins = displayedUser.stats?.wins || 0;
+  const losses = displayedUser.stats?.losses || 0;
+  const draws = displayedUser.stats?.draws || 0;
+  const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
 
   const handleFriendAction = () => {
     if (friendshipStatus === 'friends') {

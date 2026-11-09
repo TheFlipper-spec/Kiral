@@ -326,23 +326,95 @@ export const App: React.FC = () => {
         }
       }
 
-      // Voice speech synthesis in match analysis and review
+      // Varied and natural voice commentary without duplicate classification words
       if (isAnalysisEnabled && (gameMode === 'review' || Boolean(gameOverMessage) || isMistakeReplayActive)) {
-        const statusMap: Record<string, string> = {
-          blunder: 'Грубая ошибка.',
-          mistake: 'Ошибка.',
-          miss: 'Упущен шанс.',
-          inaccuracy: 'Неточность.',
-          book: 'Теоретический ход.',
-          best: 'Лучший ход.',
-          excellent: 'Отличный ход.',
-          great: 'Замечательный ход.',
-          brilliant: 'Блестящая жертва!'
-        };
-        const prefix = statusMap[move.classification] || '';
-        if (prefix) {
-          const firstSentence = move.classificationReason ? move.classificationReason.split('.')[0] : '';
-          const voiceAnnouncement = `${prefix} ${firstSentence ? firstSentence + '.' : ''}`;
+        let cleanReason = (move.classificationReason || '')
+          .replace(/^Грубая ошибка\s*([—:–-]\s*)?/i, '')
+          .replace(/^Ошибка\s*([—:–-]\s*)?/i, '')
+          .replace(/^Неточность\s*([—:–-]\s*)?/i, '')
+          .replace(/^Упущен шанс\s*([—:–-]\s*)?/i, '')
+          .replace(/^Лучший ход\s*([—:–-]\s*)?/i, '')
+          .replace(/^Отличный ход\s*([—:–-]\s*)?/i, '')
+          .replace(/^Блестящая жертва\s*([—:–-]\s*)?/i, '')
+          .replace(/^Блестящий ход\s*([—:–-]\s*)?/i, '')
+          .replace(/^Теоретический ход\s*([—:–-]\s*)?/i, '')
+          .replace(/^Шах и мат!\s*/i, 'Мат на доске! ')
+          .trim();
+
+        const firstSentence = cleanReason.split('.')[0]?.trim() || '';
+        const pick = (arr: string[]) => arr[targetPly % arr.length];
+
+        let voiceAnnouncement = '';
+        switch (move.classification) {
+          case 'blunder':
+            voiceAnnouncement = pick([
+              `Зевок! ${firstSentence}.`,
+              `Грубая ошибка: ${firstSentence}.`,
+              `Критический промах. ${firstSentence}.`,
+              `Серьезная оплошность: ${firstSentence}.`
+            ]);
+            break;
+          case 'mistake':
+            voiceAnnouncement = pick([
+              `Ошибка: ${firstSentence}.`,
+              `Неудачный ход. ${firstSentence}.`,
+              `Позиция ухудшается: ${firstSentence}.`,
+              `Упущение: ${firstSentence}.`
+            ]);
+            break;
+          case 'miss':
+            voiceAnnouncement = pick([
+              `Упущен шанс! ${firstSentence}.`,
+              `Мимо цели: ${firstSentence}.`,
+              `Упущена победная возможность.`
+            ]);
+            break;
+          case 'inaccuracy':
+            voiceAnnouncement = pick([
+              `Неточность: ${firstSentence}.`,
+              `Слабовато сыграно. ${firstSentence}.`,
+              `Не самый точный план. ${firstSentence}.`
+            ]);
+            break;
+          case 'brilliant':
+            voiceAnnouncement = pick([
+              `Блестяще! ${firstSentence}.`,
+              `Фантастическая жертва! ${firstSentence}.`,
+              `Гениальный тактический удар!`
+            ]);
+            break;
+          case 'great':
+            voiceAnnouncement = pick([
+              `Отличный ход! ${firstSentence}.`,
+              `Сильнейшая находка. ${firstSentence}.`,
+              `Замечательное решение!`
+            ]);
+            break;
+          case 'best':
+            voiceAnnouncement = pick([
+              `Лучший ход! ${firstSentence}.`,
+              `Первая линия движка. ${firstSentence}.`,
+              `Абсолютно точно: ${firstSentence}.`
+            ]);
+            break;
+          case 'excellent':
+            voiceAnnouncement = pick([
+              `Прекрасный ход. ${firstSentence}.`,
+              `Очень сильное продолжение.`
+            ]);
+            break;
+          case 'book':
+            voiceAnnouncement = pick([
+              `Теория: ${firstSentence}.`,
+              `Дебют по канонам.`
+            ]);
+            break;
+          default:
+            voiceAnnouncement = firstSentence ? `${firstSentence}.` : '';
+            break;
+        }
+
+        if (voiceAnnouncement) {
           sound.speak(voiceAnnouncement);
         }
       }
@@ -3050,7 +3122,7 @@ export const App: React.FC = () => {
       )}
 
       <main className="flex-1 w-full max-w-none mx-auto grid grid-cols-1 grid-rows-[auto_auto] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[minmax(0,1fr)_430px] xl:grid-cols-[minmax(0,1fr)_470px] lg:gap-0 lg:pl-3 lg:pr-0 lg:py-0 overflow-y-auto lg:overflow-hidden">
-        <section className="relative h-full flex items-center justify-center overflow-hidden bg-[#0A0A0A] px-1 py-1 sm:p-2">
+        <section className="relative w-full flex flex-col items-center justify-center overflow-visible lg:overflow-hidden lg:h-full bg-[#0A0A0A] px-1 py-0.5 sm:p-2">
           <ChessboardArea
             fen={currentFen}
             isFlipped={isFlipped}
@@ -3171,6 +3243,7 @@ export const App: React.FC = () => {
                   onRevealMistakeSolution={handleRevealMistakeSolution}
                   onExitMistakeReplay={handleExitMistakeReplay}
                   isGameOver={Boolean(gameOverMessage)}
+                  onRestartGame={() => handleReset()}
                 />
               </div>
 
@@ -3301,6 +3374,7 @@ export const App: React.FC = () => {
               onRevealMistakeSolution={handleRevealMistakeSolution}
               onExitMistakeReplay={handleExitMistakeReplay}
               isGameOver={Boolean(gameOverMessage)}
+              onRestartGame={() => handleReset()}
             />
           )}
         </section>

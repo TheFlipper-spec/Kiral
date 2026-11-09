@@ -16,7 +16,6 @@ import {
   Volume2,
   VolumeX,
   RotateCw,
-  Eye,
   Clock,
   UserPlus,
   UserCheck,
@@ -25,8 +24,7 @@ import {
   Bot,
   Undo2,
   Handshake,
-  X,
-  Target
+  X
 } from 'lucide-react';
 
 import { CountryFlag } from './CountryFlag';
@@ -204,8 +202,8 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   onOfferDraw,
   canUndoMove = false,
   onUndoMove,
-  mistakeCount = 0,
-  onStartMistakeReplay,
+  mistakeCount: _mistakeCount = 0,
+  onStartMistakeReplay: _onStartMistakeReplay,
   activeMistake = null,
   onNextMistake: _onNextMistake,
   onRevealMistakePieceHint: _onRevealMistakePieceHint,
@@ -222,7 +220,6 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const mobileRibbonRef = useRef<HTMLDivElement>(null);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
-  const [isDismissedGameOver, setIsDismissedGameOver] = useState<boolean>(false);
   const [mistakeMode, setMistakeMode] = useState<'review' | 'solve'>('review');
   const [pendingPromotion, setPendingPromotion] = useState<{
     sourceSquare: string;
@@ -254,11 +251,6 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       return false;
     }
   };
-
-  // Reset dismissal when game over message changes
-  useEffect(() => {
-    setIsDismissedGameOver(false);
-  }, [gameOverMessage]);
 
   // Clear selected square whenever board position changes
   useEffect(() => {
@@ -646,11 +638,11 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   const bottomAdvantage = bottomPlayer ? (bottomPlayer.color === 'w' ? capturedSummary.whiteAdvantage : capturedSummary.blackAdvantage) : 0;
 
   return (
-    <div className="flex flex-col items-center justify-center px-1 sm:px-2 py-0.5 select-none h-full w-full min-h-0">
+    <div className="flex flex-col items-center justify-center px-1 sm:px-2 py-0.5 select-none w-full min-h-0 lg:h-full">
       {/* Top Player / Opponent Bar */}
       {topPlayer && (
         <div className={`${boardWidthClass} mb-0.5 sm:mb-1 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0`}>
-          <div className="flex items-center gap-1.5 sm:gap-2 truncate">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
             <span
               className={`w-3 h-3 rounded-sm border shrink-0 ${
                 topPlayer.color === 'w'
@@ -666,7 +658,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             {topPlayer.country && (
               <CountryFlag code={topPlayer.country} className="w-4 h-3 shrink-0" />
             )}
-            <span className="font-semibold text-[#EDEDED] truncate max-w-[140px] xs:max-w-[180px] sm:max-w-[260px]">
+            <span className="font-semibold text-[#EDEDED] truncate min-w-0">
               {topPlayer.name}
             </span>
             {typeof topPlayer.elo === 'number' && (
@@ -1024,87 +1016,6 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               </div>
             </div>
           )}
-
-          {/* Game Over Modal Overlay */}
-          {gameOverMessage && !isDismissedGameOver && !activeMistake && (
-            <div className="absolute inset-0 bg-black/85 z-40 flex flex-col items-center justify-center p-4 backdrop-blur-[3px] animate-in fade-in duration-300">
-              <div className="p-5 bg-[#141414] border border-[#333333] rounded-xl shadow-2xl flex flex-col items-center text-center max-w-sm w-full">
-                <span className="text-[11px] font-mono uppercase tracking-wider text-[#888888] mb-1">
-                  Партия завершена
-                </span>
-                <span className="text-base font-sans font-bold text-[#EDEDED] mb-4">
-                  {gameOverMessage}
-                </span>
-
-                {Boolean(mistakeCount && mistakeCount > 0 && onStartMistakeReplay) && (
-                  <button
-                    onClick={onStartMistakeReplay}
-                    className="w-full mb-3 px-4 py-2 rounded-lg bg-[#1baca6] text-black hover:bg-[#20c2bc] text-xs font-mono font-bold flex items-center justify-center gap-2 transition-colors shadow-lg cursor-pointer"
-                    title="Интерактивно переиграть свои зевки и ошибки"
-                  >
-                    <Target className="w-4 h-4" />
-                    <span>Работа над ошибками ({mistakeCount})</span>
-                  </button>
-                )}
-
-                <div className="flex flex-col sm:flex-row items-center gap-2 w-full justify-center">
-                  <button
-                    onClick={() => setIsDismissedGameOver(true)}
-                    className="w-full sm:w-auto px-3 py-1.5 rounded bg-[#222222] border border-[#3a3a3a] text-[#CCCCCC] hover:text-white hover:bg-[#2c2c2c] text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-colors"
-                    title="Скрыть окно и свободно смотреть партию"
-                  >
-                    <Eye className="w-3.5 h-3.5" strokeWidth={1.5} />
-                    <span>Посмотреть партию</span>
-                  </button>
-                  {onRestartGame && (
-                    <button
-                      onClick={onRestartGame}
-                      className="w-full sm:w-auto px-3.5 py-1.5 rounded bg-[#EDEDED] text-[#0A0A0A] hover:bg-white text-xs font-mono font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                    >
-                      <RotateCw className="w-3.5 h-3.5" strokeWidth={1.5} />
-                      <span>Новая игра</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Compact floating banner when modal is dismissed and mistake replay is not active */}
-          {gameOverMessage && isDismissedGameOver && !activeMistake && (
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-[#141414]/95 border border-[#333333] shadow-2xl backdrop-blur-md text-[11px] sm:text-xs font-mono max-w-[96%] select-none shrink-0 whitespace-nowrap overflow-x-auto no-scrollbar">
-              <span className="text-[#EDEDED] font-semibold whitespace-nowrap">
-                {gameOverMessage}
-              </span>
-              <button
-                onClick={() => setIsDismissedGameOver(false)}
-                className="text-[#1baca6] hover:text-[#25d3cc] flex items-center gap-1 text-[10px] sm:text-[11px] shrink-0 font-medium px-1.5 py-0.5 rounded hover:bg-[#202020] transition-colors cursor-pointer"
-                title="Показать окно результата"
-              >
-                <Eye className="w-3 h-3 shrink-0" />
-                <span className="whitespace-nowrap">Окно</span>
-              </button>
-              {Boolean(mistakeCount && mistakeCount > 0 && onStartMistakeReplay) && (
-                <button
-                  onClick={onStartMistakeReplay}
-                  className="px-2 py-0.5 rounded bg-[#1baca6]/20 border border-[#1baca6]/40 hover:bg-[#1baca6]/30 text-[#1baca6] text-[10px] sm:text-[11px] font-bold flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
-                  title="Работа над ошибками"
-                >
-                  <Target className="w-3 h-3 shrink-0" />
-                  <span className="whitespace-nowrap">Ошибки ({mistakeCount})</span>
-                </button>
-              )}
-              {onRestartGame && (
-                <button
-                  onClick={onRestartGame}
-                  className="px-2 py-0.5 rounded bg-[#222222] hover:bg-[#2c2c2c] border border-[#333333] text-[#CCCCCC] hover:text-white text-[10px] sm:text-[11px] flex items-center gap-1 transition-colors shrink-0 cursor-pointer whitespace-nowrap"
-                >
-                  <RotateCw className="w-3 h-3 shrink-0" />
-                  <span className="whitespace-nowrap">Переиграть</span>
-                </button>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Mobile Landscape Side Action Column (replaces bottom bar on phone landscape) */}
@@ -1180,7 +1091,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       {/* Bottom Player Bar */}
       {bottomPlayer && (
         <div className={`${boardWidthClass} mt-0.5 sm:mt-1 flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-xs font-mono shrink-0`}>
-          <div className="flex items-center gap-1.5 sm:gap-2 truncate">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
             <span
               className={`w-3 h-3 rounded-sm border shrink-0 ${
                 bottomPlayer.color === 'w'
@@ -1192,7 +1103,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             {bottomPlayer.country && (
               <CountryFlag code={bottomPlayer.country} className="w-4 h-3 shrink-0" />
             )}
-            <span className="font-semibold text-[#EDEDED] truncate max-w-[140px] xs:max-w-[180px] sm:max-w-[260px]">
+            <span className="font-semibold text-[#EDEDED] truncate min-w-0">
               {bottomPlayer.name}
             </span>
             {typeof bottomPlayer.elo === 'number' && (
@@ -1317,12 +1228,16 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
 
       {/* Navigation & Controls Bar (hidden on phone landscape to maximize board size) */}
       <div className={`${boardWidthClass} mt-0.5 sm:mt-1 flex items-center justify-between px-2 py-0.5 sm:py-1 bg-[#121212] border border-[#262626] rounded-md text-[#EDEDED] shrink-0 max-lg:landscape:hidden`}>
-        {/* Left: Move Counter or AI Thinking Status */}
+        {/* Left: Move Counter, AI Status or Game Result */}
         <div className="text-xs font-mono text-[#888888] flex items-center gap-1.5 min-w-[50px] sm:min-w-[80px]">
           {isAiThinking ? (
             <span className="flex items-center gap-1.5 text-[#1baca6] font-medium animate-pulse">
               <span className="w-1.5 h-1.5 rounded-full bg-[#1baca6]" />
               Stockfish...
+            </span>
+          ) : gameOverMessage ? (
+            <span className="text-[#f0c15c] font-bold text-[11px] truncate max-w-[130px] sm:max-w-none" title={gameOverMessage}>
+              {gameOverMessage}
             </span>
           ) : (
             <span>{currentPly}/{totalPlies}</span>
@@ -1379,16 +1294,6 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
 
         {/* Right: Board options (Flip, Sound, Reset, Result) */}
         <div className="flex items-center gap-0.5 sm:gap-1 min-w-[50px] sm:min-w-[80px] justify-end">
-          {gameOverMessage && isDismissedGameOver && (
-            <button
-              onClick={() => setIsDismissedGameOver(false)}
-              className="px-1.5 py-1 rounded bg-[#1A1A1A] hover:bg-[#262626] border border-[#333333] text-[#1baca6] hover:text-[#25d3cc] text-[10px] font-mono flex items-center gap-1 transition-colors"
-              title="Показать окно результата"
-            >
-              <Eye className="w-3 h-3" />
-              <span className="hidden sm:inline">Итог</span>
-            </button>
-          )}
           {onRestartGame && !isSpectating && (
             <button
               onClick={onRestartGame}

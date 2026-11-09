@@ -188,11 +188,12 @@ export const Header: React.FC<HeaderProps> = ({
                 <select
                   value={aiDifficultyId}
                   onChange={(e) => onChangeAiDifficulty(e.target.value)}
-                  className="bg-transparent text-[#1baca6] font-semibold focus:outline-none cursor-pointer py-0.5 text-[11px] max-w-[110px] sm:max-w-none"
+                  className="bg-transparent text-[#1baca6] font-semibold focus:outline-none cursor-pointer py-0.5 text-[11px]"
+                  title="Уровень сложности ИИ (ELO)"
                 >
                   {AI_DIFFICULTIES.map((d) => (
-                    <option key={d.id} value={d.id} className="bg-[#141414] text-[#EDEDED]">
-                      {d.name} (~{d.eloApprox})
+                    <option key={d.id} value={d.id} className="bg-[#141414] text-[#EDEDED]" title={`${d.name} (${d.eloApprox})`}>
+                      {d.eloApprox}
                     </option>
                   ))}
                 </select>

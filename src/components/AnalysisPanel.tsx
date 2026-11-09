@@ -50,6 +50,7 @@ export interface AnalysisPanelProps {
   onRevealMistakeSolution?: () => void;
   onExitMistakeReplay?: () => void;
   isGameOver?: boolean;
+  onRestartGame?: () => void;
 }
 
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
@@ -72,17 +73,20 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   onRevealMistakePieceHint,
   onRevealMistakeSolution,
   onExitMistakeReplay,
-  isGameOver = false
+  isGameOver = false,
+  onRestartGame
 }) => {
   const [activeTab, setActiveTab] = useState<'moves' | 'summary' | 'graph' | 'mistakes'>('moves');
   const [copiedPgn, setCopiedPgn] = useState<boolean>(false);
 
-  // Auto-switch to mistakes tab when replay starts
+  // Auto-switch to mistakes tab when replay starts, or summary when game ends
   useEffect(() => {
     if (activeMistake) {
       setActiveTab('mistakes');
+    } else if (isGameOver && report) {
+      setActiveTab('summary');
     }
-  }, [activeMistake]);
+  }, [activeMistake, isGameOver, Boolean(report)]);
 
   const rawMoves = report?.moves || [];
   const moves = rawMoves.filter((m): m is MoveAnalysis => Boolean(m));
@@ -366,6 +370,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
               report={report}
               mistakeCount={mistakeCount}
               onStartMistakeReplay={onStartMistakeReplay}
+              onRestartGame={onRestartGame}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center p-4 text-xs font-mono text-[#666666]">
