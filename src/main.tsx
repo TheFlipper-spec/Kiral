@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Auth0Provider } from '@auth0/auth0-react'
 import { getStoredAuth0Config } from './services/auth0Service'
+import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import './index.css'
 import App from './App.tsx'
 
@@ -20,19 +21,21 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator && import.meta
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {config.domain && config.clientId ? (
-      <Auth0Provider
-        domain={config.domain}
-        clientId={config.clientId}
-        authorizationParams={{
-          redirect_uri: redirectUri
-        }}
-        cacheLocation="localstorage"
-      >
+    <ErrorBoundary>
+      {config.domain && config.clientId ? (
+        <Auth0Provider
+          domain={config.domain}
+          clientId={config.clientId}
+          authorizationParams={{
+            redirect_uri: redirectUri
+          }}
+          cacheLocation="localstorage"
+        >
+          <App />
+        </Auth0Provider>
+      ) : (
         <App />
-      </Auth0Provider>
-    ) : (
-      <App />
-    )}
+      )}
+    </ErrorBoundary>
   </StrictMode>,
 )

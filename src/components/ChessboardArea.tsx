@@ -719,14 +719,14 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       )}
 
       {/* Board & Eval Bar Container (pixel-aligned height) */}
-      <div className={`flex items-stretch gap-1.5 sm:gap-2.5 ${boardWidthClass} relative shrink-0`}>
+      <div className={`flex items-stretch ${isAnalysisEnabled ? 'gap-1.5 sm:gap-2.5' : ''} ${boardWidthClass} relative shrink-0`}>
         {/* Vertical Eval Bar */}
         {isAnalysisEnabled && <EvalBar evalCp={evalCp} mate={mate} flipped={isFlipped} />}
 
         {/* Board wrapper */}
         <div
           ref={boardContainerRef}
-          className="relative flex-1 aspect-square rounded-md overflow-hidden border border-[#262626] shadow-xl bg-[#121212]"
+          className={`relative ${isAnalysisEnabled ? 'flex-1' : 'w-full'} aspect-square rounded-md overflow-hidden border border-[#262626] shadow-xl bg-[#121212]`}
         >
           <Chessboard
             options={{
@@ -741,7 +741,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                   const chess = new Chess(fen);
                   if (pieceColor !== chess.turn()) return false;
                 } catch {}
-                if (bottomPlayer && topPlayer && bottomPlayer.color) {
+                if (canResign && bottomPlayer && topPlayer && bottomPlayer.color) {
                   if (pieceColor !== bottomPlayer.color) {
                     return false;
                   }

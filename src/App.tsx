@@ -71,6 +71,10 @@ export const App: React.FC = () => {
       try {
         localStorage.setItem('kiral_analysis_enabled', String(next));
       } catch {}
+      if (!next) {
+        sound.cancel();
+        setMoveAccent(null);
+      }
       return next;
     });
   }, []);
@@ -671,7 +675,7 @@ export const App: React.FC = () => {
 
       setReport((prev) => buildUpdatedReport(prev, plyIndex, deepAnalysis));
 
-      if (announceAccent) {
+      if (announceAccent && isAnalysisEnabledRef.current) {
         const isCheck = chessAfter.inCheck();
         const meta = CLASSIFICATION_CONFIGS[classResult.classification];
         setMoveAccent({
@@ -784,7 +788,9 @@ export const App: React.FC = () => {
               sound.playCapture();
             } else if (newFen.includes('+') || chess.inCheck()) {
               sound.playCheck();
-              sound.speak('Вам шах!');
+              if (isAnalysisEnabledRef.current) {
+                sound.speak('Вам шах!');
+              }
             } else {
               sound.playMove();
             }

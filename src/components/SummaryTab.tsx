@@ -29,6 +29,10 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({
   onStartMistakeReplay
 }) => {
   const { whiteAccuracy, blackAccuracy, whitePlayer, blackPlayer, classificationSummary } = report;
+  const safeWhiteAcc = typeof whiteAccuracy === 'number' && !isNaN(whiteAccuracy) ? whiteAccuracy.toFixed(1) : '100.0';
+  const safeBlackAcc = typeof blackAccuracy === 'number' && !isNaN(blackAccuracy) ? blackAccuracy.toFixed(1) : '100.0';
+  const safeWhiteSummary = classificationSummary?.white || ({} as Record<MoveClassification, number>);
+  const safeBlackSummary = classificationSummary?.black || ({} as Record<MoveClassification, number>);
 
   return (
     <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 select-none">
@@ -44,7 +48,7 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({
           </div>
           <div className="flex items-baseline gap-1 mt-1">
             <span className="text-2xl font-mono font-bold text-[#EDEDED] tracking-tight">
-              {whiteAccuracy.toFixed(1)}
+              {safeWhiteAcc}
             </span>
             <span className="text-xs font-mono text-[#888888]">%</span>
           </div>
@@ -61,7 +65,7 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({
           </div>
           <div className="flex items-baseline gap-1 mt-1">
             <span className="text-2xl font-mono font-bold text-[#EDEDED] tracking-tight">
-              {blackAccuracy.toFixed(1)}
+              {safeBlackAcc}
             </span>
             <span className="text-xs font-mono text-[#888888]">%</span>
           </div>
@@ -92,8 +96,8 @@ export const SummaryTab: React.FC<SummaryTabProps> = ({
         <div className="divide-y divide-[#1C1C1C]">
           {CLASSIFICATION_ORDER.map((type) => {
             const config = CLASSIFICATION_CONFIGS[type];
-            const whiteCount = classificationSummary.white[type] || 0;
-            const blackCount = classificationSummary.black[type] || 0;
+            const whiteCount = safeWhiteSummary[type] || 0;
+            const blackCount = safeBlackSummary[type] || 0;
             const hasMoves = whiteCount > 0 || blackCount > 0;
 
             return (

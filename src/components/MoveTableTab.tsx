@@ -43,9 +43,10 @@ export const MoveTableTab: React.FC<MoveTableTabProps> = ({
 
   const formatEval = (m?: MoveAnalysis) => {
     if (!m) return '';
-    if (m.mateAfter !== null) return `M${Math.abs(m.mateAfter)}`;
-    const p = (m.evalAfter / 100).toFixed(1);
-    return m.evalAfter > 0 ? `+${p}` : p;
+    if (m.mateAfter !== null && m.mateAfter !== undefined) return `M${Math.abs(m.mateAfter)}`;
+    const cp = typeof m.evalAfter === 'number' && !isNaN(m.evalAfter) ? m.evalAfter : 0;
+    const p = (cp / 100).toFixed(1);
+    return cp > 0 ? `+${p}` : p;
   };
 
   return (

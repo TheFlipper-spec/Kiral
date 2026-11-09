@@ -36,13 +36,16 @@ export const EvalGraph: React.FC<EvalGraphProps> = ({
     ];
 
     moves.forEach((m) => {
-      const wp = centipawnsToWinPercent(m.evalAfter, m.mateAfter);
-      const normValue = (wp - 50) / 50;
+      const rawEval = typeof m.evalAfter === 'number' && !isNaN(m.evalAfter) ? m.evalAfter : 0;
+      const rawMate = typeof m.mateAfter === 'number' && !isNaN(m.mateAfter) ? m.mateAfter : null;
+      const wp = centipawnsToWinPercent(rawEval, rawMate);
+      const rawNorm = (wp - 50) / 50;
+      const normValue = isNaN(rawNorm) ? 0 : rawNorm;
       points.push({
         ply: m.ply + 1,
-        san: m.san,
-        evalCp: m.evalAfter,
-        mate: m.mateAfter,
+        san: m.san || '',
+        evalCp: rawEval,
+        mate: rawMate,
         normValue
       });
     });

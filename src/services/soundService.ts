@@ -165,6 +165,15 @@ class SoundService {
     });
   }
 
+  public cancel() {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // Ignored
+    }
+  }
+
   public speak(text: string) {
     if (!this.enabled || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     try {
