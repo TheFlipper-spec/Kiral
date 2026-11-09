@@ -19,6 +19,7 @@ interface AnalysisPanelProps {
   hideEngineHints?: boolean;
   mistakeCount?: number;
   onStartMistakeReplay?: () => void;
+  isAnalysisEnabled?: boolean;
 }
 
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
@@ -32,7 +33,8 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   onTogglePreviewLine,
   hideEngineHints = false,
   mistakeCount = 0,
-  onStartMistakeReplay
+  onStartMistakeReplay,
+  isAnalysisEnabled = true
 }) => {
   const [activeTab, setActiveTab] = useState<'summary' | 'moves'>('moves');
 
@@ -109,7 +111,12 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
       </div>
 
       {/* Engine Line Box */}
-      {hideEngineHints ? (
+      {!isAnalysisEnabled ? (
+        <div className="px-3 py-2 border-b border-[#262626] bg-[#111111] text-[11px] font-mono text-[#777777] flex items-center justify-between shrink-0">
+          <span>Анализ ходов отключен пользователем</span>
+          <span className="text-[#888888]">Чистая доска</span>
+        </div>
+      ) : hideEngineHints ? (
         <div className="px-3 py-2 border-b border-[#262626] bg-[#111111] text-[11px] font-mono text-[#777777] flex items-center justify-between shrink-0">
           <span>Подсказки движка скрыты во время партии</span>
           <span className="text-[#f0c15c] font-semibold">Честная игра</span>
@@ -129,6 +136,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
             moves={moves}
             currentPly={currentPly}
             onSelectPly={onSelectPly}
+            isAnalysisEnabled={isAnalysisEnabled}
           />
         ) : report ? (
           <SummaryTab

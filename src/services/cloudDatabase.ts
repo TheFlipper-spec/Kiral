@@ -128,6 +128,11 @@ class CloudDatabaseService {
               let parsedAvatar: string | undefined = undefined;
               let parsedPassword: string | undefined = undefined;
               let parsedActiveGame: any = null;
+              let parsedFriends: string[] = [];
+              let parsedIncomingRequests: any[] = [];
+              let parsedOutgoingRequests: string[] = [];
+              let parsedLastPuzzleIndex: number | undefined = undefined;
+              let parsedMatchHistory: any[] = [];
 
               if (row.avatar_url && typeof row.avatar_url === 'string') {
                 if (row.avatar_url.trim().startsWith('{')) {
@@ -136,6 +141,11 @@ class CloudDatabaseService {
                     parsedAvatar = parsed.avatar || undefined;
                     parsedPassword = parsed.pwd || undefined;
                     parsedActiveGame = parsed.activeGame || null;
+                    if (Array.isArray(parsed.friends)) parsedFriends = parsed.friends;
+                    if (Array.isArray(parsed.incomingFriendRequests)) parsedIncomingRequests = parsed.incomingFriendRequests;
+                    if (Array.isArray(parsed.outgoingFriendRequests)) parsedOutgoingRequests = parsed.outgoingFriendRequests;
+                    if (typeof parsed.lastPuzzleIndex === 'number') parsedLastPuzzleIndex = parsed.lastPuzzleIndex;
+                    if (Array.isArray(parsed.matchHistory)) parsedMatchHistory = parsed.matchHistory;
                   } catch {
                     parsedAvatar = row.avatar_url;
                   }
@@ -153,7 +163,11 @@ class CloudDatabaseService {
                 elo: Number(row.elo) || 100,
                 puzzlePoints: Number(row.puzzle_points) || 0,
                 solvedPuzzleIds: Array.isArray(row.solved_puzzles) ? row.solved_puzzles : [],
-                friends: [],
+                friends: parsedFriends,
+                incomingFriendRequests: parsedIncomingRequests,
+                outgoingFriendRequests: parsedOutgoingRequests,
+                lastPuzzleIndex: parsedLastPuzzleIndex,
+                matchHistory: parsedMatchHistory,
                 stats: {
                   wins: Number(row.wins) || 0,
                   losses: Number(row.losses) || 0,
@@ -247,6 +261,11 @@ class CloudDatabaseService {
           let parsedAvatar: string | undefined = undefined;
           let parsedPassword: string | undefined = undefined;
           let parsedActiveGame: any = null;
+          let parsedFriends: string[] = [];
+          let parsedIncomingRequests: any[] = [];
+          let parsedOutgoingRequests: string[] = [];
+          let parsedLastPuzzleIndex: number | undefined = undefined;
+          let parsedMatchHistory: any[] = [];
 
           if (row.avatar_url && typeof row.avatar_url === 'string') {
             if (row.avatar_url.trim().startsWith('{')) {
@@ -255,6 +274,11 @@ class CloudDatabaseService {
                 parsedAvatar = parsed.avatar || undefined;
                 parsedPassword = parsed.pwd || undefined;
                 parsedActiveGame = parsed.activeGame || null;
+                if (Array.isArray(parsed.friends)) parsedFriends = parsed.friends;
+                if (Array.isArray(parsed.incomingFriendRequests)) parsedIncomingRequests = parsed.incomingFriendRequests;
+                if (Array.isArray(parsed.outgoingFriendRequests)) parsedOutgoingRequests = parsed.outgoingFriendRequests;
+                if (typeof parsed.lastPuzzleIndex === 'number') parsedLastPuzzleIndex = parsed.lastPuzzleIndex;
+                if (Array.isArray(parsed.matchHistory)) parsedMatchHistory = parsed.matchHistory;
               } catch {
                 parsedAvatar = row.avatar_url;
               }
@@ -272,7 +296,11 @@ class CloudDatabaseService {
             elo: Number(row.elo) || 100,
             puzzlePoints: Number(row.puzzle_points) || 0,
             solvedPuzzleIds: Array.isArray(row.solved_puzzles) ? row.solved_puzzles : [],
-            friends: [],
+            friends: parsedFriends,
+            incomingFriendRequests: parsedIncomingRequests,
+            outgoingFriendRequests: parsedOutgoingRequests,
+            lastPuzzleIndex: parsedLastPuzzleIndex,
+            matchHistory: parsedMatchHistory,
             stats: {
               wins: Number(row.wins) || 0,
               losses: Number(row.losses) || 0,
@@ -304,14 +332,16 @@ class CloudDatabaseService {
     if (this.supabase && this.config.provider === 'supabase') {
       try {
         const canonicalId = `usr_${encodeURIComponent(user.username.trim().toLowerCase())}`;
-        let avatarPayload: string | null = null;
-        if (user.avatarUrl || user.password || user.activeGame) {
-          avatarPayload = JSON.stringify({
-            avatar: user.avatarUrl || null,
-            pwd: user.password || null,
-            activeGame: user.activeGame || null
-          });
-        }
+        const avatarPayload = JSON.stringify({
+          avatar: user.avatarUrl || null,
+          pwd: user.password || null,
+          activeGame: user.activeGame || null,
+          friends: Array.isArray(user.friends) ? user.friends : [],
+          incomingFriendRequests: Array.isArray(user.incomingFriendRequests) ? user.incomingFriendRequests : [],
+          outgoingFriendRequests: Array.isArray(user.outgoingFriendRequests) ? user.outgoingFriendRequests : [],
+          lastPuzzleIndex: typeof user.lastPuzzleIndex === 'number' ? user.lastPuzzleIndex : null,
+          matchHistory: Array.isArray(user.matchHistory) ? user.matchHistory.slice(0, 30) : []
+        });
 
         const { error } = await this.supabase.from('kiral_players').upsert(
           {

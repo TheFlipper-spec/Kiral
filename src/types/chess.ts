@@ -257,3 +257,29 @@ export const TIME_CONTROLS: TimeControlConfig[] = [
     label: '15 + 10'
   }
 ];
+
+export interface FriendRequest {
+  id: string;
+  username: string;
+  elo: number;
+  avatarUrl?: string;
+  createdAt: string;
+}
+
+export interface PlayedMatchRecord {
+  id: string;
+  date: string;
+  gameMode: 'ranked' | 'vs-ai' | 'pvp';
+  timeControlLabel?: string;
+  opponentName: string;
+  opponentElo?: number;
+  myColor: 'w' | 'b';
+  result: 'win' | 'loss' | 'draw';
+  eloDelta?: number;
+  accuracy?: number;
+  movesCount: number;
+  fens: string[];
+  pgn?: string;
+  reason?: string;
+}
+

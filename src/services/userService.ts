@@ -1,4 +1,5 @@
 import { cloudDatabase } from './cloudDatabase';
+import type { FriendRequest, PlayedMatchRecord } from '../types/chess';
 
 export function getDeterministicUserId(username: string): string {
   return `usr_${encodeURIComponent(username.trim().toLowerCase())}`;
@@ -27,6 +28,10 @@ export interface UserProfile {
   puzzlePoints: number;
   solvedPuzzleIds: string[];
   friends: string[];
+  incomingFriendRequests?: FriendRequest[];
+  outgoingFriendRequests?: string[];
+  lastPuzzleIndex?: number;
+  matchHistory?: PlayedMatchRecord[];
   stats: {
     wins: number;
     losses: number;
@@ -232,6 +237,18 @@ class UserService {
 
         const allSolved = Array.from(new Set([...(existing.solvedPuzzleIds || []), ...(rem.solvedPuzzleIds || [])]));
         const mergedFriends = Array.from(new Set([...(existing.friends || []), ...(rem.friends || [])]));
+        const mergedIncoming = rem.incomingFriendRequests && rem.incomingFriendRequests.length > 0
+          ? rem.incomingFriendRequests
+          : (existing.incomingFriendRequests || []);
+        const mergedOutgoing = rem.outgoingFriendRequests && rem.outgoingFriendRequests.length > 0
+          ? rem.outgoingFriendRequests
+          : (existing.outgoingFriendRequests || []);
+        const mergedLastPuzzle = typeof rem.lastPuzzleIndex === 'number'
+          ? rem.lastPuzzleIndex
+          : (typeof existing.lastPuzzleIndex === 'number' ? existing.lastPuzzleIndex : undefined);
+        const mergedHistory = rem.matchHistory && rem.matchHistory.length > 0
+          ? rem.matchHistory
+          : (existing.matchHistory || []);
 
         // Reconcile activeGame
         let resolvedActiveGame = existing.activeGame;
@@ -258,6 +275,10 @@ class UserService {
           puzzlePoints: useRemoteStats ? rem.puzzlePoints : Math.max(existing.puzzlePoints || 0, rem.puzzlePoints || 0),
           solvedPuzzleIds: allSolved,
           friends: mergedFriends,
+          incomingFriendRequests: mergedIncoming,
+          outgoingFriendRequests: mergedOutgoing,
+          lastPuzzleIndex: mergedLastPuzzle,
+          matchHistory: mergedHistory,
           activeGame: resolvedActiveGame
         };
 
@@ -322,31 +343,209 @@ class UserService {
     return this.users.find(u => u.id === userId) || this.cloudPlayers.find(u => u.id === userId);
   }
 
-  public toggleFriend(targetUserId: string): boolean {
-    const currentUser = this.getCurrentUser();
-    if (!currentUser || currentUser.id === targetUserId) return false;
-    if (!currentUser.friends) currentUser.friends = [];
+  public getFriendshipStatus(
+    targetUserId: string,
+    targetUsername?: string
+  ): 'none' | 'pending_outgoing' | 'pending_incoming' | 'friends' {
+    const user = this.getCurrentUser();
+    if (!user || user.id === targetUserId) return 'none';
 
-    const idx = currentUser.friends.indexOf(targetUserId);
-    let isNowFriend = false;
-    if (idx >= 0) {
-      currentUser.friends.splice(idx, 1);
-      isNowFriend = false;
-    } else {
-      currentUser.friends.push(targetUserId);
-      isNowFriend = true;
+    const friends = user.friends || [];
+    if (
+      friends.includes(targetUserId) ||
+      (targetUsername && friends.some((f) => f.toLowerCase() === targetUsername.toLowerCase()))
+    ) {
+      return 'friends';
+    }
+
+    const incoming = user.incomingFriendRequests || [];
+    if (
+      incoming.some(
+        (r) =>
+          r.id === targetUserId ||
+          (targetUsername && r.username.toLowerCase() === targetUsername.toLowerCase())
+      )
+    ) {
+      return 'pending_incoming';
+    }
+
+    const outgoing = user.outgoingFriendRequests || [];
+    if (
+      outgoing.includes(targetUserId) ||
+      (targetUsername && outgoing.some((o) => o.toLowerCase() === targetUsername.toLowerCase()))
+    ) {
+      return 'pending_outgoing';
+    }
+
+    return 'none';
+  }
+
+  public isFriend(targetUserId: string, targetUsername?: string): boolean {
+    return this.getFriendshipStatus(targetUserId, targetUsername) === 'friends';
+  }
+
+  public sendFriendRequest(target: UserProfile): { success: boolean; message: string } {
+    const user = this.getCurrentUser();
+    if (!user) return { success: false, message: 'Сначала выполните вход' };
+    if (user.id === target.id || user.username.toLowerCase() === target.username.toLowerCase()) {
+      return { success: false, message: 'Нельзя добавить самого себя' };
+    }
+
+    const status = this.getFriendshipStatus(target.id, target.username);
+    if (status === 'friends') {
+      return { success: false, message: 'Игрок уже в вашем списке друзей' };
+    }
+    if (status === 'pending_outgoing') {
+      return { success: false, message: 'Заявка уже отправлена' };
+    }
+
+    if (!user.outgoingFriendRequests) user.outgoingFriendRequests = [];
+    if (!user.outgoingFriendRequests.includes(target.id)) {
+      user.outgoingFriendRequests.push(target.id);
     }
 
     this.saveUsers();
-    if (currentUser.isRegistered && currentUser.authProvider !== 'guest') {
-      cloudDatabase.syncPlayer(currentUser);
+    if (user.isRegistered && user.authProvider !== 'guest') {
+      cloudDatabase.syncPlayer(user);
     }
-    return isNowFriend;
+    this.notifyListeners();
+
+    // Also update target's incoming request if target is loaded locally or in cloud
+    const targetLocal = this.users.find(
+      (u) => u.id === target.id || u.username.toLowerCase() === target.username.toLowerCase()
+    );
+    if (targetLocal) {
+      if (!targetLocal.incomingFriendRequests) targetLocal.incomingFriendRequests = [];
+      if (!targetLocal.incomingFriendRequests.some((r) => r.id === user.id)) {
+        targetLocal.incomingFriendRequests.push({
+          id: user.id,
+          username: user.username,
+          elo: user.elo,
+          avatarUrl: user.avatarUrl,
+          createdAt: new Date().toISOString()
+        });
+        this.saveUsers();
+      }
+    }
+
+    return { success: true, message: `Заявка в друзья отправлена ${target.username}` };
   }
 
-  public isFriend(targetUserId: string): boolean {
-    const currentUser = this.getCurrentUser();
-    return Boolean(currentUser?.friends?.includes(targetUserId));
+  public receiveIncomingFriendRequest(req: FriendRequest): void {
+    const user = this.getCurrentUser();
+    if (!user || user.id === req.id) return;
+    if (!user.incomingFriendRequests) user.incomingFriendRequests = [];
+    if (user.friends && user.friends.includes(req.id)) return;
+    if (!user.incomingFriendRequests.some((r) => r.id === req.id)) {
+      user.incomingFriendRequests.push(req);
+      this.saveUsers();
+      if (user.isRegistered && user.authProvider !== 'guest') {
+        cloudDatabase.syncPlayer(user);
+      }
+      this.notifyListeners();
+    }
+  }
+
+  public acceptFriendRequest(requesterId: string): { success: boolean; message: string } {
+    const user = this.getCurrentUser();
+    if (!user) return { success: false, message: 'Пользователь не найден' };
+
+    if (!user.friends) user.friends = [];
+    if (!user.friends.includes(requesterId)) {
+      user.friends.push(requesterId);
+    }
+
+    // Remove from incoming requests
+    if (user.incomingFriendRequests) {
+      user.incomingFriendRequests = user.incomingFriendRequests.filter((r) => r.id !== requesterId);
+    }
+
+    this.saveUsers();
+    if (user.isRegistered && user.authProvider !== 'guest') {
+      cloudDatabase.syncPlayer(user);
+    }
+    this.notifyListeners();
+
+    // Also update requester's profile if available locally
+    const reqLocal = this.users.find((u) => u.id === requesterId);
+    if (reqLocal) {
+      if (!reqLocal.friends) reqLocal.friends = [];
+      if (!reqLocal.friends.includes(user.id)) reqLocal.friends.push(user.id);
+      if (reqLocal.outgoingFriendRequests) {
+        reqLocal.outgoingFriendRequests = reqLocal.outgoingFriendRequests.filter((id) => id !== user.id);
+      }
+      this.saveUsers();
+    }
+
+    return { success: true, message: 'Заявка в друзья принята' };
+  }
+
+  public declineFriendRequest(requesterId: string): void {
+    const user = this.getCurrentUser();
+    if (!user || !user.incomingFriendRequests) return;
+    user.incomingFriendRequests = user.incomingFriendRequests.filter((r) => r.id !== requesterId);
+    this.saveUsers();
+    if (user.isRegistered && user.authProvider !== 'guest') {
+      cloudDatabase.syncPlayer(user);
+    }
+    this.notifyListeners();
+  }
+
+  public removeFriend(friendId: string): void {
+    const user = this.getCurrentUser();
+    if (!user || !user.friends) return;
+    user.friends = user.friends.filter((id) => id !== friendId);
+    this.saveUsers();
+    if (user.isRegistered && user.authProvider !== 'guest') {
+      cloudDatabase.syncPlayer(user);
+    }
+    this.notifyListeners();
+  }
+
+  public toggleFriend(targetUserId: string): boolean {
+    const status = this.getFriendshipStatus(targetUserId);
+    if (status === 'friends') {
+      this.removeFriend(targetUserId);
+      return false;
+    } else {
+      const target = this.getUserById(targetUserId);
+      if (target) {
+        this.sendFriendRequest(target);
+      }
+      return true;
+    }
+  }
+
+  public setLastPuzzleIndex(index: number): void {
+    const user = this.getCurrentUser();
+    if (!user) return;
+    user.lastPuzzleIndex = Math.max(0, index);
+    this.saveUsers();
+    if (user.isRegistered && user.authProvider !== 'guest') {
+      cloudDatabase.syncPlayer(user);
+    }
+  }
+
+  public getLastPuzzleIndex(): number {
+    const user = this.getCurrentUser();
+    return typeof user?.lastPuzzleIndex === 'number' ? user.lastPuzzleIndex : 0;
+  }
+
+  public recordMatchHistory(record: PlayedMatchRecord): void {
+    const user = this.getCurrentUser();
+    if (!user) return;
+    if (!user.matchHistory) user.matchHistory = [];
+    user.matchHistory = [record, ...user.matchHistory.filter((m) => m.id !== record.id)].slice(0, 30);
+    this.saveUsers();
+    if (user.isRegistered && user.authProvider !== 'guest') {
+      cloudDatabase.syncPlayer(user);
+    }
+    this.notifyListeners();
+  }
+
+  public getMatchHistory(): PlayedMatchRecord[] {
+    const user = this.getCurrentUser();
+    return user?.matchHistory || [];
   }
 
   public getAllUsers(): UserProfile[] {

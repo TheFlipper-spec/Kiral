@@ -1,7 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Trophy, Target, UserPlus, UserCheck, Swords, CheckCircle2, RefreshCw } from 'lucide-react';
+import {
+  X,
+  User,
+  Trophy,
+  Target,
+  UserPlus,
+  UserCheck,
+  Swords,
+  CheckCircle2,
+  RefreshCw,
+  Clock,
+  Eye,
+  Check
+} from 'lucide-react';
 import type { UserProfile } from '../services/userService';
 import { userService } from '../services/userService';
+import { multiplayerService } from '../services/multiplayerService';
+import type { LiveGamePresence } from '../services/multiplayerService';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -9,6 +24,8 @@ interface UserProfileModalProps {
   targetUser: UserProfile | null;
   currentUser: UserProfile;
   onChallengePlayer?: (user: UserProfile) => void;
+  onSpectateGame?: (game: LiveGamePresence) => void;
+  onUserChanged?: (user: UserProfile) => void;
 }
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
@@ -16,7 +33,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onClose,
   targetUser,
   currentUser,
-  onChallengePlayer
+  onChallengePlayer,
+  onSpectateGame,
+  onUserChanged
 }) => {
   const [challenged, setChallenged] = useState(false);
   const [liveUser, setLiveUser] = useState<UserProfile | null>(targetUser);
@@ -51,7 +70,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   const displayedUser = liveUser || targetUser;
   const isMe = displayedUser.id === currentUser.id;
-  const isFriend = userService.isFriend(displayedUser.id);
+  const friendshipStatus = userService.getFriendshipStatus(displayedUser.id, displayedUser.username);
+  const liveGame = multiplayerService.getLiveGameForUser(displayedUser.id || displayedUser.username);
 
   const totalGames = displayedUser.stats?.totalGames || 0;
   const wins = displayedUser.stats?.wins || 0;
@@ -59,9 +79,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const draws = displayedUser.stats?.draws || 0;
   const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
 
-  const handleToggleFriend = () => {
-    userService.toggleFriend(displayedUser.id);
-    // Trigger re-render
+  const handleFriendAction = () => {
+    if (friendshipStatus === 'friends') {
+      userService.removeFriend(displayedUser.id);
+    } else if (friendshipStatus === 'pending_incoming') {
+      userService.acceptFriendRequest(displayedUser.id);
+    } else if (friendshipStatus === 'none') {
+      userService.sendFriendRequest(displayedUser);
+      multiplayerService.sendFriendRequestNotification(displayedUser.id, currentUser);
+    }
+    if (onUserChanged) onUserChanged({ ...userService.getCurrentUser() });
     setChallenged((prev) => !prev);
   };
 
@@ -174,45 +201,77 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
           {/* Action Buttons */}
           {!isMe && (
-            <div className="flex items-center gap-2 w-full">
-              <button
-                onClick={handleToggleFriend}
-                className={`flex-1 py-2 px-3 rounded-lg border text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-colors ${
-                  isFriend
-                    ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
-                    : 'bg-[#1C1C1C] border-[#333333] text-white hover:bg-[#252525]'
-                }`}
-              >
-                {isFriend ? (
-                  <>
-                    <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>В друзьях</span>
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="w-3.5 h-3.5 text-[#1baca6]" />
-                    <span>В друзья</span>
-                  </>
-                )}
-              </button>
+            <div className="flex flex-col gap-2 w-full">
+              {liveGame && onSpectateGame && (
+                <button
+                  onClick={() => {
+                    onSpectateGame(liveGame);
+                    onClose();
+                  }}
+                  className="w-full py-2 px-3 rounded-lg bg-rose-950/60 hover:bg-rose-900/60 border border-rose-800/80 text-rose-200 text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <Eye className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Смотреть прямой эфир ({liveGame.opponentName})</span>
+                </button>
+              )}
 
-              <button
-                onClick={handleChallenge}
-                disabled={challenged}
-                className="flex-1 py-2 px-3 rounded-lg bg-[#1baca6] text-black hover:bg-[#20c2bc] text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-75"
-              >
-                {challenged ? (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Вызов отправлен</span>
-                  </>
-                ) : (
-                  <>
-                    <Swords className="w-3.5 h-3.5" />
-                    <span>Вызвать</span>
-                  </>
+              <div className="flex items-center gap-2 w-full">
+                <button
+                  onClick={handleFriendAction}
+                  disabled={friendshipStatus === 'pending_outgoing'}
+                  className={`flex-1 py-2 px-3 rounded-lg border text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                    friendshipStatus === 'friends'
+                      ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                      : friendshipStatus === 'pending_incoming'
+                      ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300 hover:bg-emerald-800/60'
+                      : friendshipStatus === 'pending_outgoing'
+                      ? 'bg-zinc-900 border-zinc-800 text-zinc-500 cursor-not-allowed'
+                      : 'bg-[#1C1C1C] border-[#333333] text-white hover:bg-[#252525]'
+                  }`}
+                >
+                  {friendshipStatus === 'friends' ? (
+                    <>
+                      <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>В друзьях</span>
+                    </>
+                  ) : friendshipStatus === 'pending_incoming' ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Принять заявку</span>
+                    </>
+                  ) : friendshipStatus === 'pending_outgoing' ? (
+                    <>
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Заявка отправлена</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="w-3.5 h-3.5 text-[#1baca6]" />
+                      <span>+ Заявка в друзья</span>
+                    </>
+                  )}
+                </button>
+
+                {!liveGame && (
+                  <button
+                    onClick={handleChallenge}
+                    disabled={challenged}
+                    className="flex-1 py-2 px-3 rounded-lg bg-[#1baca6] text-black hover:bg-[#20c2bc] text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-75"
+                  >
+                    {challenged ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Вызов отправлен</span>
+                      </>
+                    ) : (
+                      <>
+                        <Swords className="w-3.5 h-3.5" />
+                        <span>Вызвать</span>
+                      </>
+                    )}
+                  </button>
                 )}
-              </button>
+              </div>
             </div>
           )}
         </div>

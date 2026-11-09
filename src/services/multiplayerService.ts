@@ -19,13 +19,18 @@ export interface RankedMatchSession {
 }
 
 export interface MovePayload {
+  moveId?: string;
+  ply?: number;
   from: string;
   to: string;
   promotion?: string;
   fen: string;
   san?: string;
+  fens?: string[];
   whiteTime?: number;
   blackTime?: number;
+  isGameOver?: boolean;
+  gameOverMessage?: string;
 }
 
 export interface DirectChallengePayload {
@@ -39,11 +44,23 @@ export interface DirectChallengePayload {
   roomId: string;
 }
 
+export interface LiveGamePresence {
+  userId: string;
+  username: string;
+  elo: number;
+  roomId: string;
+  opponentName: string;
+  timeControlId?: TimeControlId;
+  updatedAt: number;
+}
+
 type OnMatchFound = (session: RankedMatchSession) => void;
 type OnOpponentMove = (move: MovePayload) => void;
 type OnOpponentResign = () => void;
 type OnOpponentDraw = () => void;
 type OnDirectChallenge = (challenge: DirectChallengePayload) => void;
+type OnFriendRequestReceived = (req: { id: string; username: string; elo: number; avatarUrl?: string; createdAt: string }) => void;
+type OnLiveGamesChange = (games: LiveGamePresence[]) => void;
 
 class MultiplayerService {
   private supabase: SupabaseClient;
@@ -53,6 +70,11 @@ class MultiplayerService {
   private isSearching: boolean = false;
   private myPlayer: UserProfile | null = null;
   private challengeListeners: OnDirectChallenge[] = [];
+  private friendRequestListeners: OnFriendRequestReceived[] = [];
+  private liveGamesMap: Map<string, LiveGamePresence> = new Map();
+  private liveGamesListeners: OnLiveGamesChange[] = [];
+  private pendingMoves: Map<string, { move: MovePayload; attempts: number; timer?: any }> = new Map();
+  private activeRoomId: string | null = null;
 
   constructor() {
     this.supabase = sharedSupabase;
@@ -74,10 +96,105 @@ class MultiplayerService {
             this.challengeListeners.forEach((fn) => fn(payload as DirectChallengePayload));
           }
         })
+        .on('broadcast', { event: 'friend_request' }, ({ payload }) => {
+          if (payload && this.myPlayer && payload.toUserId === this.myPlayer.id && payload.fromUser) {
+            this.friendRequestListeners.forEach((fn) => fn(payload.fromUser));
+          }
+        })
+        .on('broadcast', { event: 'game_presence' }, ({ payload }) => {
+          if (payload && payload.userId) {
+            if (payload.status === 'playing') {
+              this.liveGamesMap.set(payload.userId, {
+                userId: payload.userId,
+                username: payload.username,
+                elo: payload.elo,
+                roomId: payload.roomId,
+                opponentName: payload.opponentName,
+                timeControlId: payload.timeControlId,
+                updatedAt: Date.now()
+              });
+            } else {
+              this.liveGamesMap.delete(payload.userId);
+            }
+            this.notifyLiveGames();
+          }
+        })
         .subscribe();
     } catch (err) {
       console.warn('Lobby init warning:', err);
     }
+  }
+
+  private notifyLiveGames() {
+    const list = Array.from(this.liveGamesMap.values());
+    this.liveGamesListeners.forEach((fn) => {
+      try {
+        fn(list);
+      } catch {}
+    });
+  }
+
+  public onLiveGames(listener: OnLiveGamesChange): () => void {
+    this.liveGamesListeners.push(listener);
+    listener(Array.from(this.liveGamesMap.values()));
+    return () => {
+      this.liveGamesListeners = this.liveGamesListeners.filter((l) => l !== listener);
+    };
+  }
+
+  public getLiveGameForUser(userIdOrUsername: string): LiveGamePresence | undefined {
+    const key = userIdOrUsername.toLowerCase();
+    for (const game of this.liveGamesMap.values()) {
+      if (game.userId.toLowerCase() === key || game.username.toLowerCase() === key) {
+        // Discard stale game older than 35 mins
+        if (Date.now() - game.updatedAt < 35 * 60 * 1000) {
+          return game;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  public async broadcastGamePresence(
+    roomId: string,
+    opponentName: string,
+    status: 'playing' | 'idle',
+    timeControlId?: TimeControlId
+  ) {
+    if (!this.lobbyChannel || !this.myPlayer) return;
+    try {
+      await this.lobbyChannel.send({
+        type: 'broadcast',
+        event: 'game_presence',
+        payload: {
+          userId: this.myPlayer.id,
+          username: this.myPlayer.username,
+          elo: this.myPlayer.elo,
+          roomId,
+          opponentName,
+          status,
+          timeControlId
+        }
+      });
+    } catch {}
+  }
+
+  public onFriendRequest(listener: OnFriendRequestReceived): () => void {
+    this.friendRequestListeners.push(listener);
+    return () => {
+      this.friendRequestListeners = this.friendRequestListeners.filter((l) => l !== listener);
+    };
+  }
+
+  public async sendFriendRequestNotification(toUserId: string, fromUser: any) {
+    if (!this.lobbyChannel) return;
+    try {
+      await this.lobbyChannel.send({
+        type: 'broadcast',
+        event: 'friend_request',
+        payload: { toUserId, fromUser }
+      });
+    } catch {}
   }
 
   public setPlayer(player: UserProfile) {
@@ -226,11 +343,14 @@ class MultiplayerService {
             }
           };
 
-          await searchChannel.send({
-            type: 'broadcast',
-            event: 'match_created',
-            payload: matchPayload
-          });
+          for (let i = 0; i < 3; i++) {
+            searchChannel.send({
+              type: 'broadcast',
+              event: 'match_created',
+              payload: matchPayload
+            });
+            if (i < 2) await new Promise((r) => setTimeout(r, 150));
+          }
 
           cleanup();
 
@@ -351,7 +471,7 @@ class MultiplayerService {
   }
 
   /**
-   * Joins a game room for live moves sync
+   * Joins a game room for live moves sync with ACK, Heartbeat, and Full Sync protocols
    */
   public async joinGameRoom(
     roomId: string,
@@ -360,9 +480,18 @@ class MultiplayerService {
     onDraw: OnOpponentDraw,
     onTimeout?: (fromColor?: 'w' | 'b') => void,
     onDrawOffer?: (fromUsername: string) => void,
-    onDrawAccept?: () => void
+    onDrawAccept?: () => void,
+    onRequestSync?: () => void,
+    onFullSync?: (payload: any) => void,
+    onHeartbeat?: (payload: any) => void
   ) {
+    // Idempotency: if already subscribed to this room, avoid destroying and recreating channel
+    if (this.gameChannel && this.activeRoomId === roomId) {
+      return;
+    }
+
     this.leaveGameRoom();
+    this.activeRoomId = roomId;
 
     this.gameChannel = this.supabase.channel(`game_${roomId}`, {
       config: { broadcast: { self: false } }
@@ -370,7 +499,37 @@ class MultiplayerService {
 
     this.gameChannel
       .on('broadcast', { event: 'move' }, ({ payload }) => {
-        if (payload) onMove(payload as MovePayload);
+        if (!payload) return;
+        const move = payload as MovePayload;
+        // Immediate ACK response back to sender
+        if (move.moveId) {
+          try {
+            this.gameChannel?.send({
+              type: 'broadcast',
+              event: 'move_ack',
+              payload: { moveId: move.moveId, ply: move.ply }
+            });
+          } catch {}
+        }
+        onMove(move);
+      })
+      .on('broadcast', { event: 'move_ack' }, ({ payload }) => {
+        if (payload && payload.moveId) {
+          const pending = this.pendingMoves.get(payload.moveId);
+          if (pending) {
+            if (pending.timer) clearTimeout(pending.timer);
+            this.pendingMoves.delete(payload.moveId);
+          }
+        }
+      })
+      .on('broadcast', { event: 'request_sync' }, () => {
+        if (onRequestSync) onRequestSync();
+      })
+      .on('broadcast', { event: 'full_sync' }, ({ payload }) => {
+        if (onFullSync && payload) onFullSync(payload);
+      })
+      .on('broadcast', { event: 'heartbeat' }, ({ payload }) => {
+        if (onHeartbeat && payload) onHeartbeat(payload);
       })
       .on('broadcast', { event: 'resign' }, () => {
         onResign();
@@ -395,15 +554,148 @@ class MultiplayerService {
   }
 
   /**
-   * Sends move to opponent in the room
+   * Joins a game room as a live spectator (read-only real-time feed)
+   */
+  public async joinSpectatorRoom(
+    roomId: string,
+    callbacks: {
+      onFullSync: (payload: any) => void;
+      onMove: (move: MovePayload) => void;
+      onResign: () => void;
+      onDraw: () => void;
+      onTimeout?: () => void;
+      onHeartbeat?: (payload: any) => void;
+    }
+  ): Promise<() => void> {
+    this.leaveGameRoom();
+    this.activeRoomId = roomId;
+
+    this.gameChannel = this.supabase.channel(`game_${roomId}`, {
+      config: { broadcast: { self: false } }
+    });
+
+    this.gameChannel
+      .on('broadcast', { event: 'full_sync' }, ({ payload }) => {
+        if (payload) callbacks.onFullSync(payload);
+      })
+      .on('broadcast', { event: 'move' }, ({ payload }) => {
+        if (payload) callbacks.onMove(payload as MovePayload);
+      })
+      .on('broadcast', { event: 'heartbeat' }, ({ payload }) => {
+        if (callbacks.onHeartbeat && payload) callbacks.onHeartbeat(payload);
+      })
+      .on('broadcast', { event: 'resign' }, () => {
+        callbacks.onResign();
+      })
+      .on('broadcast', { event: 'draw' }, () => {
+        callbacks.onDraw();
+      })
+      .on('broadcast', { event: 'timeout' }, () => {
+        if (callbacks.onTimeout) callbacks.onTimeout();
+      });
+
+    await this.gameChannel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        // Request active board state from players
+        setTimeout(() => {
+          this.gameChannel?.send({
+            type: 'broadcast',
+            event: 'request_sync',
+            payload: { isSpectator: true }
+          });
+        }, 150);
+      }
+    });
+
+    return () => {
+      this.leaveGameRoom();
+    };
+  }
+
+  /**
+   * Sends move with automatic retry and ACK acknowledgment to prevent desync
    */
   public async sendMove(move: MovePayload) {
     if (!this.gameChannel) return;
-    await this.gameChannel.send({
-      type: 'broadcast',
-      event: 'move',
-      payload: move
-    });
+    const moveId = move.moveId || `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    move.moveId = moveId;
+
+    const executeSend = async () => {
+      if (!this.gameChannel) return;
+      try {
+        await this.gameChannel.send({
+          type: 'broadcast',
+          event: 'move',
+          payload: move
+        });
+      } catch {}
+    };
+
+    await executeSend();
+
+    // Schedule retries every 750ms if ACK not received
+    let attempts = 0;
+    const retry = () => {
+      if (!this.pendingMoves.has(moveId)) return;
+      attempts++;
+      if (attempts >= 5) {
+        this.pendingMoves.delete(moveId);
+        return;
+      }
+      executeSend();
+      const timer = setTimeout(retry, 750);
+      this.pendingMoves.set(moveId, { move, attempts, timer });
+    };
+
+    const timer = setTimeout(retry, 750);
+    this.pendingMoves.set(moveId, { move, attempts: 0, timer });
+  }
+
+  public async sendHeartbeat(data: {
+    ply: number;
+    latestFen: string;
+    whiteTime?: number;
+    blackTime?: number;
+    isGameOver?: boolean;
+    gameOverMessage?: string;
+  }) {
+    if (!this.gameChannel) return;
+    try {
+      await this.gameChannel.send({
+        type: 'broadcast',
+        event: 'heartbeat',
+        payload: data
+      });
+    } catch {}
+  }
+
+  public async sendFullSync(data: {
+    fens: string[];
+    currentPly: number;
+    whiteTime?: number;
+    blackTime?: number;
+    isGameOver?: boolean;
+    gameOverMessage?: string;
+  }) {
+    if (!this.gameChannel) return;
+    try {
+      await this.gameChannel.send({
+        type: 'broadcast',
+        event: 'full_sync',
+        payload: data
+      });
+    } catch {}
+  }
+
+  public async requestFullSync() {
+    if (!this.gameChannel) return;
+    try {
+      await this.gameChannel.send({
+        type: 'broadcast',
+        event: 'request_sync',
+        payload: { requesterId: this.myPlayer?.id }
+      });
+    } catch {}
   }
 
   /**
@@ -414,7 +706,7 @@ class MultiplayerService {
     await this.gameChannel.send({
       type: 'broadcast',
       event: 'draw_offer',
-      payload: { playerId: this.myPlayer?.id }
+      payload: { playerId: this.myPlayer?.id, fromUsername: this.myPlayer?.username }
     });
   }
 
@@ -431,15 +723,21 @@ class MultiplayerService {
   }
 
   /**
-   * Sends resignation to opponent
+   * Sends resignation to opponent with triple redundancy
    */
   public async sendResign() {
     if (!this.gameChannel) return;
-    await this.gameChannel.send({
-      type: 'broadcast',
-      event: 'resign',
-      payload: { playerId: this.myPlayer?.id }
-    });
+    for (let i = 0; i < 3; i++) {
+      setTimeout(() => {
+        try {
+          this.gameChannel?.send({
+            type: 'broadcast',
+            event: 'resign',
+            payload: { playerId: this.myPlayer?.id }
+          });
+        } catch {}
+      }, i * 200);
+    }
   }
 
   /**
@@ -459,11 +757,19 @@ class MultiplayerService {
   }
 
   public leaveGameRoom() {
+    this.pendingMoves.forEach(({ timer }) => {
+      if (timer) clearTimeout(timer);
+    });
+    this.pendingMoves.clear();
+
     if (this.gameChannel) {
-      this.gameChannel.unsubscribe();
-      this.supabase.removeChannel(this.gameChannel);
+      try {
+        this.gameChannel.unsubscribe();
+        this.supabase.removeChannel(this.gameChannel);
+      } catch {}
       this.gameChannel = null;
     }
+    this.activeRoomId = null;
     this.currentSession = null;
   }
 

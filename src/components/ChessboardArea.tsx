@@ -163,6 +163,9 @@ interface ChessboardAreaProps {
   onRevealMistakeSolution?: () => void;
   onExitMistakeReplay?: () => void;
   timeControlBadge?: string;
+  isAnalysisEnabled?: boolean;
+  isSpectating?: boolean;
+  onExitSpectate?: () => void;
 }
 
 export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
@@ -208,7 +211,10 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   onRevealMistakePieceHint,
   onRevealMistakeSolution,
   onExitMistakeReplay,
-  timeControlBadge
+  timeControlBadge,
+  isAnalysisEnabled = true,
+  isSpectating = false,
+  onExitSpectate
 }) => {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -275,6 +281,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
 
   // Handle square clicks for click-to-move
   const handleSquareClick = (square: string) => {
+    if (isSpectating) return;
     if (!onPieceDrop) return;
     if (activeMistake && mistakeMode === 'review') {
       setMistakeMode('solve');
@@ -333,9 +340,9 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     }
   };
 
-  // Best engine move arrow (hidden in 1v1 PvP & Ranked modes, disabled during mistake replay)
+  // Best engine move arrow (hidden in 1v1 PvP & Ranked modes, disabled during mistake replay or when analysis is turned off)
   const customArrows: Array<{ startSquare: string; endSquare: string; color: string }> = [];
-  if (!activeMistake && showEngineArrows && bestMoveUci && bestMoveUci.length >= 4) {
+  if (isAnalysisEnabled && !activeMistake && showEngineArrows && bestMoveUci && bestMoveUci.length >= 4) {
     const from = bestMoveUci.substring(0, 2);
     const to = bestMoveUci.substring(2, 4);
     if (from !== to) {
@@ -693,10 +700,28 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
         </div>
       )}
 
+      {/* Live Spectator Header Banner */}
+      {isSpectating && (
+        <div className={`w-full ${boardWidthClass} bg-[#161616] border border-[#2a2a2a] px-3 py-1.5 rounded-lg flex items-center justify-between mb-2 shadow-md`}>
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+            <span className="text-xs font-mono font-bold text-rose-400 uppercase tracking-wider">Прямой эфир</span>
+          </div>
+          {onExitSpectate && (
+            <button
+              onClick={onExitSpectate}
+              className="px-2.5 py-1 rounded bg-[#252525] hover:bg-[#303030] border border-[#3a3a3a] text-xs font-mono text-[#EDEDED] transition-colors"
+            >
+              Выйти из эфира
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Board & Eval Bar Container (pixel-aligned height) */}
       <div className={`flex items-stretch gap-1.5 sm:gap-2.5 ${boardWidthClass} relative shrink-0`}>
         {/* Vertical Eval Bar */}
-        <EvalBar evalCp={evalCp} mate={mate} flipped={isFlipped} />
+        {isAnalysisEnabled && <EvalBar evalCp={evalCp} mate={mate} flipped={isFlipped} />}
 
         {/* Board wrapper */}
         <div
@@ -707,7 +732,22 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             options={{
               position: fen,
               boardOrientation: isFlipped ? 'black' : 'white',
-              allowDragging: true,
+              allowDragging: !isSpectating,
+              canDragPiece: ({ piece }) => {
+                if (isSpectating) return false;
+                if (!piece || !piece.pieceType) return false;
+                const pieceColor = piece.pieceType[0] as 'w' | 'b';
+                try {
+                  const chess = new Chess(fen);
+                  if (pieceColor !== chess.turn()) return false;
+                } catch {}
+                if (bottomPlayer && topPlayer && bottomPlayer.color) {
+                  if (pieceColor !== bottomPlayer.color) {
+                    return false;
+                  }
+                }
+                return true;
+              },
               onSquareClick: ({ square }) => {
                 handleSquareClick(square);
               },
@@ -715,6 +755,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                 if (square) handleSquareClick(square);
               },
               onPieceDrop: ({ sourceSquare, targetSquare }) => {
+                if (isSpectating) return false;
                 if (!targetSquare) return false;
                 setSelectedSquare(null);
                 if (activeMistake && mistakeMode === 'review') {
@@ -835,7 +876,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           })}
 
           {/* Destination square classification badge overlay */}
-          {badgePosition && currentMove && (
+          {isAnalysisEnabled && badgePosition && currentMove && (
             <div
               className="absolute pointer-events-none transition-all duration-150 z-20 flex items-start justify-end p-0.5"
               style={{
@@ -909,7 +950,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           )}
 
           {/* 1.5s Move Status Accent Floating Notification */}
-          {!activeMistake && moveAccent && (
+          {!activeMistake && isAnalysisEnabled && moveAccent && (
             <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-150">
               <div className="bg-[#121212]/95 border border-[#333333] shadow-2xl rounded-lg px-3.5 py-2 flex items-center gap-3 backdrop-blur-md">
                 <ClassificationBadge classification={moveAccent.classification} size="md" />

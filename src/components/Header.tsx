@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, RotateCcw, BookOpen, Swords, Users, Trophy, User, Download, GraduationCap, Undo2 } from 'lucide-react';
+import { Upload, RotateCcw, BookOpen, Swords, Users, Trophy, User, Download, GraduationCap, Undo2, Activity } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
 import type { ScoreDeltaData } from './ScoreDeltaNotification';
@@ -27,6 +27,8 @@ interface HeaderProps {
   onOpenAuth: () => void;
   canUndoMove?: boolean;
   onUndoMove?: () => void;
+  isAnalysisEnabled?: boolean;
+  onToggleAnalysis?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -45,7 +47,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenLeaderboard,
   onOpenAuth,
   canUndoMove = false,
-  onUndoMove
+  onUndoMove,
+  isAnalysisEnabled = true,
+  onToggleAnalysis
 }) => {
   const [installPrompt, setInstallPrompt] = useState<any>(null);
 
@@ -321,6 +325,26 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           <div className="h-4 w-[1px] bg-[#262626] hidden sm:block shrink-0" />
+
+          {/* Move Analysis Toggle Button */}
+          {onToggleAnalysis && (
+            <button
+              onClick={onToggleAnalysis}
+              className={`p-1.5 sm:px-2 sm:py-1 rounded text-xs font-mono transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 border ${
+                isAnalysisEnabled
+                  ? 'bg-[#1baca6]/15 text-[#1baca6] border-[#1baca6]/40 hover:bg-[#1baca6]/25'
+                  : 'bg-[#181818] text-[#777777] border-[#2a2a2a] hover:text-[#EDEDED]'
+              }`}
+              title={
+                isAnalysisEnabled
+                  ? 'Анализ ходов включен (кликните, чтобы отключить)'
+                  : 'Анализ ходов отключен (кликните, чтобы включить)'
+              }
+            >
+              <Activity className="w-3.5 h-3.5" strokeWidth={1.5} />
+              <span className="hidden xl:inline">Анализ: {isAnalysisEnabled ? 'Вкл' : 'Выкл'}</span>
+            </button>
+          )}
 
           {/* Install PWA App button */}
           <button
