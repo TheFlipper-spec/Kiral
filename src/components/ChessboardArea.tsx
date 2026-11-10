@@ -373,9 +373,43 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     }
   };
 
-  // Best engine move arrow (hidden in 1v1 PvP & Ranked modes, disabled during mistake replay or when analysis is turned off)
+  // Best engine move arrow & played move arrow during analysis
   const customArrows: Array<{ startSquare: string; endSquare: string; color: string }> = [];
-  if (isAnalysisEnabled && !activeMistake && showEngineArrows && bestMoveUci && bestMoveUci.length >= 4) {
+
+  if (isAnalysisEnabled && !activeMistake && currentMove && currentMove.from && currentMove.to) {
+    // 1. Highlight the move actually played in the game (color-coded by quality)
+    let playedColor = 'rgba(27, 172, 166, 0.85)';
+    if (currentMove.classification === 'blunder' || currentMove.classification === 'miss') {
+      playedColor = 'rgba(239, 68, 68, 0.90)';
+    } else if (currentMove.classification === 'mistake') {
+      playedColor = 'rgba(249, 115, 22, 0.90)';
+    } else if (currentMove.classification === 'inaccuracy') {
+      playedColor = 'rgba(234, 179, 8, 0.85)';
+    } else if (currentMove.classification === 'brilliant' || currentMove.classification === 'great') {
+      playedColor = 'rgba(27, 172, 166, 0.95)';
+    } else if (currentMove.classification === 'best') {
+      playedColor = 'rgba(150, 188, 75, 0.90)';
+    }
+
+    customArrows.push({
+      startSquare: currentMove.from,
+      endSquare: currentMove.to,
+      color: playedColor
+    });
+
+    // 2. Best engine alternative arrow (shown if alternative differs from played move)
+    if (showEngineArrows && bestMoveUci && bestMoveUci.length >= 4) {
+      const bestFrom = bestMoveUci.substring(0, 2);
+      const bestTo = bestMoveUci.substring(2, 4);
+      if (bestFrom !== currentMove.from || bestTo !== currentMove.to) {
+        customArrows.push({
+          startSquare: bestFrom,
+          endSquare: bestTo,
+          color: 'rgba(150, 188, 75, 0.88)'
+        });
+      }
+    }
+  } else if (isAnalysisEnabled && !activeMistake && showEngineArrows && bestMoveUci && bestMoveUci.length >= 4) {
     const from = bestMoveUci.substring(0, 2);
     const to = bestMoveUci.substring(2, 4);
     if (from !== to) {
@@ -538,11 +572,27 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   // Square styling for selected square and previous move highlights (disabled during mistake replay)
   const customSquareStyles: Record<string, React.CSSProperties> = {};
   if (!activeMistake && currentMove) {
+    const isBad = currentMove.classification === 'blunder' || currentMove.classification === 'mistake' || currentMove.classification === 'miss';
+    const isGreat = currentMove.classification === 'brilliant' || currentMove.classification === 'great';
+
     customSquareStyles[currentMove.from] = {
-      backgroundColor: 'rgba(255, 255, 255, 0.08)'
+      backgroundColor: isBad
+        ? 'rgba(239, 68, 68, 0.12)'
+        : isGreat
+        ? 'rgba(27, 172, 166, 0.15)'
+        : 'rgba(255, 255, 255, 0.08)'
     };
     customSquareStyles[currentMove.to] = {
-      backgroundColor: 'rgba(255, 255, 255, 0.16)'
+      backgroundColor: isBad
+        ? 'rgba(239, 68, 68, 0.22)'
+        : isGreat
+        ? 'rgba(27, 172, 166, 0.25)'
+        : 'rgba(255, 255, 255, 0.16)',
+      boxShadow: isBad
+        ? 'inset 0 0 10px rgba(239, 68, 68, 0.45)'
+        : isGreat
+        ? 'inset 0 0 10px rgba(27, 172, 166, 0.55)'
+        : undefined
     };
   }
   if (selectedSquare) {
@@ -756,14 +806,14 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
       )}
 
       {/* Board, Eval Bar & Landscape Side Controls */}
-      <div className={`flex items-stretch ${isAnalysisEnabled ? 'gap-1.5 sm:gap-2.5' : ''} ${boardWidthClass} relative shrink-0`}>
+      <div className={`flex items-center justify-center ${isAnalysisEnabled ? 'gap-1.5 sm:gap-2.5' : ''} ${boardWidthClass} relative shrink-0`}>
         {/* Vertical Eval Bar */}
         {isAnalysisEnabled && <EvalBar evalCp={evalCp} mate={mate} flipped={isFlipped} />}
 
         {/* Board wrapper */}
         <div
           ref={boardContainerRef}
-          className={`relative ${isAnalysisEnabled ? 'flex-1' : 'w-full'} aspect-square rounded-md overflow-hidden border border-[#262626] shadow-xl bg-[#121212]`}
+          className={`relative ${isAnalysisEnabled ? 'flex-1' : 'w-full'} aspect-square kiral-board-box rounded-md overflow-hidden border border-[#262626] shadow-xl bg-[#121212] shrink-0`}
         >
           <Chessboard
             options={{
@@ -1019,7 +1069,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
         </div>
 
         {/* Mobile Landscape Side Action Column (replaces bottom bar on phone landscape) */}
-        <div className="hidden max-lg:landscape:flex flex-col items-center justify-center gap-1 ml-2 py-1.5 px-1 bg-[#121212] border border-[#262626] rounded-md text-[#CCCCCC] text-[11px] font-mono shrink-0 shadow-lg select-none">
+        <div className="hidden max-lg:landscape:flex flex-col items-center justify-center self-stretch gap-1 ml-1.5 py-1 px-1 bg-[#121212] border border-[#262626] rounded-md text-[#CCCCCC] text-[11px] font-mono shrink-0 shadow-lg select-none">
           <button
             onClick={onGoToStart}
             disabled={currentPly <= 0}

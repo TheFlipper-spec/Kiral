@@ -76,10 +76,10 @@ export const MoveTableTab: React.FC<MoveTableTabProps> = ({
 
               <div
                 onClick={() => row.white && onSelectPly(row.white.ply + 1)}
-                className={`py-1.5 px-2 flex items-center justify-between cursor-pointer border-r border-[#1A1A1A] transition-colors ${
+                className={`py-1.5 px-2 flex items-center justify-between cursor-pointer border-r border-[#1A1A1A] transition-all rounded-sm ${
                   isWhiteActive
-                    ? 'bg-[#222222] text-[#FFFFFF] font-semibold'
-                    : 'text-[#CCCCCC] hover:text-[#FFFFFF]'
+                    ? 'bg-[#1baca6]/20 text-white font-bold shadow-[inset_0_0_0_1px_rgba(27,172,166,0.45)]'
+                    : 'text-[#CCCCCC] hover:text-[#FFFFFF] hover:bg-[#181818]'
                 }`}
               >
                 {row.white ? (
@@ -102,10 +102,10 @@ export const MoveTableTab: React.FC<MoveTableTabProps> = ({
 
               <div
                 onClick={() => row.black && onSelectPly(row.black.ply + 1)}
-                className={`py-1.5 px-2 flex items-center justify-between cursor-pointer transition-colors ${
+                className={`py-1.5 px-2 flex items-center justify-between cursor-pointer transition-all rounded-sm ${
                   isBlackActive
-                    ? 'bg-[#222222] text-[#FFFFFF] font-semibold'
-                    : 'text-[#CCCCCC] hover:text-[#FFFFFF]'
+                    ? 'bg-[#1baca6]/20 text-white font-bold shadow-[inset_0_0_0_1px_rgba(27,172,166,0.45)]'
+                    : 'text-[#CCCCCC] hover:text-[#FFFFFF] hover:bg-[#181818]'
                 }`}
               >
                 {row.black ? (

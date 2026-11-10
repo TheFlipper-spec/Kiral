@@ -355,6 +355,16 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          {onToggleAnalysis && !isRankedActive && (
+            <button
+              onClick={onToggleAnalysis}
+              className="px-2 py-1 rounded bg-[#181818] hover:bg-[#222222] border border-[#2e2e2e] hover:border-[#1baca6]/50 text-[#1baca6] hover:text-[#20c2bc] text-[11px] font-mono font-medium transition-all flex items-center gap-1 cursor-pointer"
+              title="Выключить анализ движком (перейти в режим чистой доски)"
+            >
+              <Activity className="w-3 h-3 text-[#1baca6] shrink-0" strokeWidth={1.5} />
+              <span className="hidden sm:inline">Анализ: Вкл</span>
+            </button>
+          )}
           {onOpenLoadModal && (
             <button
               onClick={onOpenLoadModal}

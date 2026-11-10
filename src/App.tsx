@@ -3178,7 +3178,7 @@ export const App: React.FC = () => {
       )}
 
       <main className="flex-1 w-full max-w-none mx-auto grid grid-cols-1 grid-rows-[auto_auto] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[minmax(0,1fr)_430px] xl:grid-cols-[minmax(0,1fr)_470px] lg:gap-0 lg:pl-3 lg:pr-0 lg:py-0 overflow-y-auto lg:overflow-hidden">
-        <section className="relative w-full flex flex-col items-center justify-center overflow-visible lg:overflow-hidden lg:h-full bg-[#0A0A0A] px-1 py-0.5 sm:p-2">
+        <section className="relative w-full flex flex-col items-center justify-center overflow-visible landscape:h-full landscape:overflow-hidden lg:overflow-hidden lg:h-full bg-[#0A0A0A] px-1 py-0.5 sm:p-2">
           <ChessboardArea
             fen={currentFen}
             isFlipped={isFlipped}
@@ -3244,7 +3244,7 @@ export const App: React.FC = () => {
           />
         </section>
 
-        <section className="h-auto lg:h-full overflow-visible lg:overflow-hidden lg:border-l lg:border-[#262626] bg-[#0E0E0E]">
+        <section className="h-auto landscape:h-full landscape:overflow-hidden lg:h-full overflow-visible lg:overflow-hidden lg:border-l lg:border-[#262626] bg-[#0E0E0E]">
           {gameMode === 'learn' || gameMode === 'puzzles' ? (
             <LearnPanel
               activeTab={activeLearnTab}
