@@ -55,6 +55,9 @@ export interface AnalysisPanelProps {
   gameOverMessage?: string | null;
   onStartPostGameAnalysis?: () => void;
   isRankedActive?: boolean;
+  analysisScope?: 'my' | 'all';
+  onChangeAnalysisScope?: (scope: 'my' | 'all') => void;
+  playerColor?: 'w' | 'b';
 }
 
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
@@ -81,7 +84,10 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   onRestartGame,
   gameOverMessage = null,
   onStartPostGameAnalysis,
-  isRankedActive = false
+  isRankedActive = false,
+  analysisScope = 'all',
+  onChangeAnalysisScope,
+  playerColor = 'w'
 }) => {
   const [activeTab, setActiveTab] = useState<'moves' | 'summary' | 'graph' | 'mistakes'>('moves');
   const [copiedPgn, setCopiedPgn] = useState<boolean>(false);
@@ -383,6 +389,37 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
         </div>
       </div>
 
+      {/* Analysis Scope Filter Strip (Only My Moves vs Both Players) */}
+      {isAnalysisEnabled && onChangeAnalysisScope && (
+        <div className="px-3 py-1.5 bg-[#101010] border-b border-[#222222] flex items-center justify-between text-[11px] font-mono shrink-0">
+          <span className="text-zinc-500 text-[10px] uppercase font-bold">Фильтр анализа:</span>
+          <div className="flex items-center gap-1 bg-[#171717] p-0.5 rounded border border-[#2A2A2A]">
+            <button
+              onClick={() => onChangeAnalysisScope('my')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                analysisScope === 'my'
+                  ? 'bg-[#1baca6] text-black shadow-sm'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+              title="Анализировать, озвучивать и показывать статусы только для моих ходов"
+            >
+              Только мои
+            </button>
+            <button
+              onClick={() => onChangeAnalysisScope('all')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                analysisScope === 'all'
+                  ? 'bg-[#2B2B2B] text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+              title="Анализировать ходы обоих игроков"
+            >
+              Оба игрока
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Engine Line Box */}
       {!isAnalysisEnabled ? (
         <div className="px-3 py-2 border-b border-[#262626] bg-[#111111] text-[11px] font-mono text-[#777777] flex items-center justify-between shrink-0">
@@ -399,6 +436,8 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           currentMove={currentMove}
           isPreviewingLine={isPreviewingLine}
           onTogglePreviewLine={onTogglePreviewLine}
+          analysisScope={analysisScope}
+          playerColor={playerColor}
         />
       )}
 
@@ -410,6 +449,8 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
             currentPly={currentPly}
             onSelectPly={onSelectPly}
             isAnalysisEnabled={isAnalysisEnabled}
+            analysisScope={analysisScope}
+            playerColor={playerColor}
           />
         ) : activeTab === 'summary' ? (
           report ? (

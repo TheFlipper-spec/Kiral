@@ -7,12 +7,16 @@ interface EngineLineBoxProps {
   currentMove?: MoveAnalysis;
   isPreviewingLine: boolean;
   onTogglePreviewLine: () => void;
+  analysisScope?: 'my' | 'all';
+  playerColor?: 'w' | 'b';
 }
 
 export const EngineLineBox: React.FC<EngineLineBoxProps> = ({
   currentMove,
   isPreviewingLine,
-  onTogglePreviewLine
+  onTogglePreviewLine,
+  analysisScope = 'all',
+  playerColor = 'w'
 }) => {
   if (!currentMove) {
     return (
@@ -50,12 +54,15 @@ export const EngineLineBox: React.FC<EngineLineBoxProps> = ({
     evalText = evalAfter > 0 ? `+${p}` : p;
   }
 
-  const isBest = ['best', 'brilliant', 'great', 'book', 'forced'].includes(classification);
-  const isBlunderOrMistake = ['blunder', 'mistake', 'miss'].includes(classification);
-  const hasAlternative = Boolean(bestMoveSan && bestMoveSan !== san && !isBest);
+  const isMyMove = (playerColor === 'w' && turn === 'w') || (playerColor === 'b' && turn === 'b');
+  const isOpponentInMyScope = analysisScope === 'my' && !isMyMove;
 
-  const cpLossPawns = centipawnLoss && centipawnLoss >= 20 ? (centipawnLoss / 100).toFixed(1) : null;
-  const winLossRounded = typeof winPercentLoss === 'number' && winPercentLoss >= 4 ? Math.round(winPercentLoss) : null;
+  const isBest = !isOpponentInMyScope && ['best', 'brilliant', 'great', 'book', 'forced'].includes(classification);
+  const isBlunderOrMistake = !isOpponentInMyScope && ['blunder', 'mistake', 'miss'].includes(classification);
+  const hasAlternative = !isOpponentInMyScope && Boolean(bestMoveSan && bestMoveSan !== san && !isBest);
+
+  const cpLossPawns = !isOpponentInMyScope && centipawnLoss && centipawnLoss >= 20 ? (centipawnLoss / 100).toFixed(1) : null;
+  const winLossRounded = !isOpponentInMyScope && typeof winPercentLoss === 'number' && winPercentLoss >= 4 ? Math.round(winPercentLoss) : null;
 
   const pvDisplay = bestLinePv.slice(0, 4).join(' ');
 
@@ -70,7 +77,13 @@ export const EngineLineBox: React.FC<EngineLineBoxProps> = ({
             <span className="font-mono text-sm sm:text-base font-bold text-white tracking-tight">
               {moveNumber}.{turn === 'b' ? '..' : ''} {san}
             </span>
-            <ClassificationBadge classification={classification} showLabel />
+            {isOpponentInMyScope ? (
+              <span className="px-1.5 py-0.5 rounded bg-[#1C1C1C] text-zinc-400 font-mono text-[10px] border border-[#2A2A2A]">
+                Ход соперника
+              </span>
+            ) : (
+              <ClassificationBadge classification={classification} showLabel />
+            )}
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -87,7 +100,9 @@ export const EngineLineBox: React.FC<EngineLineBoxProps> = ({
 
         {/* Tactical Explanation / Coach Commentary */}
         <div className="p-2 rounded-md bg-[#161616] border border-[#242424] text-[11px] font-sans text-zinc-300 leading-relaxed">
-          {classificationReason || 'Ход выполнен.'}
+          {isOpponentInMyScope
+            ? `Ход соперника: ${san}. Статусы и ошибки скрыты (активен режим анализа «Только мои ходы»).`
+            : (classificationReason || 'Ход выполнен.')}
           {winLossRounded && (
             <span className="text-rose-400 font-mono text-[10px] ml-1">
               (Шанс на победу снизился на {winLossRounded}%)

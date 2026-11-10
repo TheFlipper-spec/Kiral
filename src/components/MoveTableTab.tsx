@@ -7,13 +7,17 @@ interface MoveTableTabProps {
   currentPly: number;
   onSelectPly: (ply: number) => void;
   isAnalysisEnabled?: boolean;
+  analysisScope?: 'my' | 'all';
+  playerColor?: 'w' | 'b';
 }
 
 export const MoveTableTab: React.FC<MoveTableTabProps> = ({
   moves,
   currentPly,
   onSelectPly,
-  isAnalysisEnabled = true
+  isAnalysisEnabled = true,
+  analysisScope = 'all',
+  playerColor = 'w'
 }) => {
   const activeRowRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -87,10 +91,12 @@ export const MoveTableTab: React.FC<MoveTableTabProps> = ({
                     <span className="truncate">{row.white.san}</span>
                     {isAnalysisEnabled && (
                       <div className="flex items-center gap-1.5 shrink-0 ml-1">
-                        <ClassificationBadge
-                          classification={row.white.classification}
-                          size="sm"
-                        />
+                        {(analysisScope === 'all' || playerColor === 'w') && (
+                          <ClassificationBadge
+                            classification={row.white.classification}
+                            size="sm"
+                          />
+                        )}
                         <span className="text-[10px] text-[#777777] font-normal w-7 text-right">
                           {formatEval(row.white)}
                         </span>
@@ -113,10 +119,12 @@ export const MoveTableTab: React.FC<MoveTableTabProps> = ({
                     <span className="truncate">{row.black.san}</span>
                     {isAnalysisEnabled && (
                       <div className="flex items-center gap-1.5 shrink-0 ml-1">
-                        <ClassificationBadge
-                          classification={row.black.classification}
-                          size="sm"
-                        />
+                        {(analysisScope === 'all' || playerColor === 'b') && (
+                          <ClassificationBadge
+                            classification={row.black.classification}
+                            size="sm"
+                          />
+                        )}
                         <span className="text-[10px] text-[#777777] font-normal w-7 text-right">
                           {formatEval(row.black)}
                         </span>

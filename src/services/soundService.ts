@@ -177,8 +177,15 @@ class SoundService {
     }
   }
 
-  public speak(text: string) {
-    if (!this.enabled || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  public isSpeaking(): boolean {
+    return typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.speaking;
+  }
+
+  public speak(text: string, onEnd?: () => void) {
+    if (!this.enabled || typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      if (onEnd) onEnd();
+      return;
+    }
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
@@ -186,12 +193,28 @@ class SoundService {
         utterance.voice = this.preferredVoice;
       }
       utterance.lang = 'ru-RU';
-      utterance.rate = 1.05;
+      utterance.rate = 1.02;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
+
+      let finished = false;
+      const finish = () => {
+        if (!finished) {
+          finished = true;
+          if (onEnd) onEnd();
+        }
+      };
+
+      utterance.onend = finish;
+      utterance.onerror = finish;
+
       window.speechSynthesis.speak(utterance);
+
+      // Maximum safety timeout (in case utterance onend is swallowed on mobile browsers)
+      const maxMs = Math.max(2500, text.length * 110 + 1000);
+      window.setTimeout(finish, maxMs);
     } catch {
-      // SpeechSynthesis may be blocked if user hasn't interacted
+      if (onEnd) onEnd();
     }
   }
 }

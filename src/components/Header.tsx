@@ -1,11 +1,11 @@
 import React from 'react';
-import { BookOpen, Swords, Users, Trophy, User, GraduationCap, Activity } from 'lucide-react';
+import { BookOpen, Swords, Users, Trophy, User, GraduationCap, Activity, Home } from 'lucide-react';
 import { AI_DIFFICULTIES } from '../types/chess';
 import type { UserProfile } from '../services/userService';
 import { CountryFlag } from './CountryFlag';
 import type { ScoreDeltaData } from './ScoreDeltaNotification';
 
-export type GameMode = 'review' | 'vs-ai' | 'pvp' | 'puzzles' | 'ranked' | 'learn';
+export type GameMode = 'home' | 'review' | 'vs-ai' | 'pvp' | 'puzzles' | 'ranked' | 'learn';
 
 interface HeaderProps {
   gameMode: GameMode;
@@ -58,6 +58,18 @@ export const Header: React.FC<HeaderProps> = ({
           : 'hidden md:flex landscape:flex items-center bg-[#141414] border border-[#262626] rounded-md p-0.5 shrink-0'
       }
     >
+      <button
+        onClick={() => onChangeMode('home')}
+        className={`${isMobileBar ? 'flex-1 justify-center px-1 py-1 text-[11px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-1 whitespace-nowrap transition-colors ${
+          gameMode === 'home'
+            ? 'bg-[#222222] text-[#1baca6] font-semibold'
+            : 'text-[#777777] hover:text-[#CCCCCC]'
+        }`}
+        title="Главная страница Kiral"
+      >
+        <Home className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" strokeWidth={1.5} />
+        <span>Главная</span>
+      </button>
       <button
         onClick={() => onChangeMode('review')}
         className={`${isMobileBar ? 'flex-1 justify-center px-1 py-1 text-[11px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-1 whitespace-nowrap transition-colors ${
@@ -124,14 +136,18 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="h-11 md:h-12 px-2 sm:px-3.5 flex items-center justify-between gap-2 w-full">
         {/* Brand & Mode Selector */}
         <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-          <div className="flex items-baseline gap-1.5 shrink-0">
-            <span className="font-mono text-sm sm:text-base font-bold tracking-tight text-[#EDEDED]">
+          <button
+            onClick={() => onChangeMode('home')}
+            className="flex items-baseline gap-1.5 shrink-0 cursor-pointer group text-left"
+            title="На главную страницу"
+          >
+            <span className="font-mono text-sm sm:text-base font-bold tracking-tight text-[#EDEDED] group-hover:text-[#1baca6] transition-colors">
               KIRAL
             </span>
             <span className="text-[10px] font-mono text-[#666666] tracking-wider uppercase hidden xl:inline whitespace-nowrap">
               Chess Platform
             </span>
-          </div>
+          </button>
 
           <div className="hidden md:block landscape:block h-3.5 w-[1px] bg-[#262626] shrink-0" />
 
@@ -184,16 +200,16 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               </div>
 
-              <div className="flex items-center bg-[#141414] border border-[#262626] rounded-md px-1.5 py-0.5 text-[11px] font-mono shrink-0">
+              <div className="flex items-center bg-[#141414] border border-[#262626] rounded-md px-1 sm:px-1.5 py-0.5 text-[11px] font-mono shrink-0">
                 <select
                   value={aiDifficultyId}
                   onChange={(e) => onChangeAiDifficulty(e.target.value)}
-                  className="bg-transparent text-[#1baca6] font-semibold focus:outline-none cursor-pointer py-0.5 text-[11px]"
+                  className="bg-transparent text-[#1baca6] font-semibold focus:outline-none cursor-pointer py-0.5 text-[11px] max-w-[50px] sm:max-w-none text-center"
                   title="Уровень сложности ИИ (ELO)"
                 >
                   {AI_DIFFICULTIES.map((d) => (
-                    <option key={d.id} value={d.id} className="bg-[#141414] text-[#EDEDED]" title={`${d.name} (${d.eloApprox})`}>
-                      {d.id === 'impossible' ? '3600 (Невозможно)' : d.eloApprox}
+                    <option key={d.id} value={d.id} className="bg-[#141414] text-[#EDEDED]" title={`${d.name} (${d.eloApprox} ELO)`}>
+                      {d.eloApprox}
                     </option>
                   ))}
                 </select>
@@ -266,7 +282,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               <button
                 onClick={onOpenAuth}
-                className={`px-2 py-1 rounded bg-[#161616] hover:bg-[#202020] border transition-all flex items-center gap-1.5 text-xs font-mono whitespace-nowrap ${
+                className={`px-1.5 sm:px-2 py-1 rounded bg-[#161616] hover:bg-[#202020] border transition-all flex items-center gap-1 sm:gap-1.5 text-xs font-mono whitespace-nowrap ${
                   scoreDelta
                     ? scoreDelta.isPositive || scoreDelta.type === 'puzzle'
                       ? 'border-emerald-600/80 shadow-[0_0_10px_rgba(34,197,94,0.15)]'
@@ -287,7 +303,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {currentUser.country && (
                   <CountryFlag code={currentUser.country} className="w-4 h-3 shrink-0" />
                 )}
-                <span className="font-semibold text-white truncate max-w-[68px] sm:max-w-[100px]">
+                <span className="font-semibold text-white truncate max-w-[55px] sm:max-w-[100px]">
                   {currentUser.username}
                 </span>
                 <span className="px-1 py-0.2 rounded bg-[#1baca6]/20 text-[#1baca6] font-bold text-[10px]">

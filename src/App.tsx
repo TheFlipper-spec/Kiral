@@ -6,6 +6,7 @@ import { ChessboardArea } from './components/ChessboardArea';
 import type { MoveAccentInfo, BoardPlayerBarInfo } from './components/ChessboardArea';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { LearnPanel } from './components/LearnPanel';
+import { HomePage } from './components/HomePage';
 import { CHESS_OPENINGS } from './data/openings';
 import type { ChessOpening } from './data/openings';
 import { LoadGameModal } from './components/LoadGameModal';
@@ -134,7 +135,8 @@ export const App: React.FC = () => {
   }, []);
 
   // Game mode & AI settings
-  const [gameMode, setGameMode] = useState<GameMode>('review');
+  const [gameMode, setGameMode] = useState<GameMode>('home');
+  const [analysisScope, setAnalysisScope] = useState<'my' | 'all'>('my');
   const [playerColor, setPlayerColor] = useState<'w' | 'b'>('w');
   const [aiDifficultyId, setAiDifficultyId] = useState<string>('casual');
   const [aiDepth, setAiDepth] = useState<number>(4);
@@ -316,9 +318,15 @@ export const App: React.FC = () => {
   }, [loadPgnIntoState, runAnalysis]);
 
   const playMoveAudio = useCallback(
-    (targetPly: number) => {
-      if (!soundEnabled || targetPly === 0 || !report || !report.moves[targetPly - 1]) return;
-      if (isRankedActiveRef.current) return;
+    (targetPly: number, onSpeechEnd?: () => void) => {
+      if (!soundEnabled || targetPly === 0 || !report || !report.moves[targetPly - 1]) {
+        if (onSpeechEnd) onSpeechEnd();
+        return null;
+      }
+      if (isRankedActiveRef.current) {
+        if (onSpeechEnd) onSpeechEnd();
+        return null;
+      }
       const move = report.moves[targetPly - 1];
       if (move.classification === 'blunder') {
         sound.playBlunder();
@@ -331,6 +339,13 @@ export const App: React.FC = () => {
         } else {
           sound.playMove();
         }
+      }
+
+      // Check analysis scope: if user selected 'my', only vocalize user's own moves!
+      const isMyMove = (playerColor === 'w' && targetPly % 2 === 1) || (playerColor === 'b' && targetPly % 2 === 0);
+      if (analysisScope === 'my' && !isMyMove) {
+        if (onSpeechEnd) onSpeechEnd();
+        return null;
       }
 
       // Varied and natural voice commentary without duplicate classification words
@@ -422,13 +437,14 @@ export const App: React.FC = () => {
         }
 
         if (voiceAnnouncement) {
-          sound.speak(voiceAnnouncement);
+          sound.speak(voiceAnnouncement, onSpeechEnd);
           return voiceAnnouncement;
         }
       }
+      if (onSpeechEnd) onSpeechEnd();
       return null;
     },
-    [soundEnabled, report, fens, isAnalysisEnabled, gameMode, gameOverMessage, isMistakeReplayActive]
+    [soundEnabled, report, fens, isAnalysisEnabled, gameMode, gameOverMessage, isMistakeReplayActive, analysisScope, playerColor]
   );
 
   const handleSelectPly = useCallback(
@@ -442,7 +458,7 @@ export const App: React.FC = () => {
     [fens.length, playMoveAudio]
   );
 
-  // Autoplay timer with intelligent speech pacing for review mode
+  // Autoplay timer with precise speech synchronization for review mode
   useEffect(() => {
     if (!isPlaying) return;
     let isCancelled = false;
@@ -456,20 +472,28 @@ export const App: React.FC = () => {
           return current;
         }
         const nextPly = current + 1;
-        const spokenText = playMoveAudio(nextPly);
+        let advanced = false;
+        const advance = (extraDelay = 1200) => {
+          if (advanced || isCancelled) return;
+          advanced = true;
+          timerId = window.setTimeout(scheduleNext, extraDelay);
+        };
 
-        // Intelligent speech pacing: allow Russian voice commentary to finish speaking completely
-        let delayMs = 2200;
-        if (soundEnabled && spokenText) {
-          delayMs = Math.max(3200, Math.min(6800, spokenText.length * 85 + 800));
+        const spokenText = playMoveAudio(nextPly, () => advance(1200));
+
+        if (!spokenText || !soundEnabled) {
+          advance(1800);
+        } else {
+          // Safety timeout in case speech engine onEnd is dropped
+          const safetyTimeoutMs = Math.max(3800, spokenText.length * 95 + 1500);
+          timerId = window.setTimeout(() => advance(400), safetyTimeoutMs);
         }
 
-        timerId = window.setTimeout(scheduleNext, delayMs);
         return nextPly;
       });
     };
 
-    timerId = window.setTimeout(scheduleNext, 800);
+    timerId = window.setTimeout(scheduleNext, 600);
 
     return () => {
       isCancelled = true;
@@ -3177,7 +3201,29 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      <main className="flex-1 w-full max-w-none mx-auto grid grid-cols-1 grid-rows-[auto_auto] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[minmax(0,1fr)_430px] xl:grid-cols-[minmax(0,1fr)_470px] lg:gap-0 lg:pl-3 lg:pr-0 lg:py-0 overflow-y-auto lg:overflow-hidden">
+      {gameMode === 'home' ? (
+        <main className="flex-1 w-full min-h-0 overflow-y-auto">
+          <HomePage
+            currentUser={currentUser}
+            onStartRanked={() => setIsMatchmakingOpen(true)}
+            onStartVsAi={(diffId) => {
+              handleChangeAiDifficulty(diffId);
+              setGameMode('vs-ai');
+              setPlayerColor('w');
+              handleReset();
+            }}
+            onOpenReview={() => {
+              setGameMode('review');
+              setIsAnalysisEnabled(true);
+            }}
+            onOpenLearn={() => setGameMode('learn')}
+            onSelectUser={(u) => setSelectedProfileUser(u)}
+            onChallengePlayer={handleChallengePlayer}
+            onLoadHistoryMatch={handleLoadMatchFromHistory}
+          />
+        </main>
+      ) : (
+        <main className="flex-1 w-full max-w-none mx-auto grid grid-cols-1 grid-rows-[auto_auto] landscape:grid-rows-1 landscape:grid-cols-[1fr_360px] md:landscape:grid-cols-[1fr_420px] lg:grid-rows-1 lg:grid-cols-[minmax(0,1fr)_430px] xl:grid-cols-[minmax(0,1fr)_470px] lg:gap-0 lg:pl-3 lg:pr-0 lg:py-0 overflow-y-auto lg:overflow-hidden">
         <section className="relative w-full flex flex-col items-center justify-center overflow-visible landscape:h-full landscape:overflow-hidden lg:overflow-hidden lg:h-full bg-[#0A0A0A] px-1 py-0.5 sm:p-2">
           <ChessboardArea
             fen={currentFen}
@@ -3303,6 +3349,9 @@ export const App: React.FC = () => {
                   gameOverMessage={gameOverMessage}
                   onStartPostGameAnalysis={handleRunRankedPostGameAnalysis}
                   isRankedActive={isRankedActive}
+                  analysisScope={analysisScope}
+                  onChangeAnalysisScope={setAnalysisScope}
+                  playerColor={playerColor}
                 />
               </div>
 
@@ -3471,10 +3520,14 @@ export const App: React.FC = () => {
               onExitMistakeReplay={handleExitMistakeReplay}
               isGameOver={Boolean(gameOverMessage)}
               onRestartGame={() => handleReset()}
+              analysisScope={analysisScope}
+              onChangeAnalysisScope={setAnalysisScope}
+              playerColor={playerColor}
             />
           )}
         </section>
       </main>
+      )}
 
       <LoadGameModal
         isOpen={isLoadModalOpen}
