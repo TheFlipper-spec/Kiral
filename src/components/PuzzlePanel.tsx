@@ -100,8 +100,8 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
         </div>
       </div>
 
-      {/* Main Content Area (Scrollable & auto-expanding) */}
-      <div className="flex-1 overflow-y-auto p-2.5 sm:p-4 space-y-2.5 sm:space-y-4 font-sans text-xs">
+      {/* Main Content Area (Scrollable on desktop, fully auto-expanding on mobile) */}
+      <div className="flex-1 overflow-visible lg:overflow-y-auto p-2.5 sm:p-4 space-y-2.5 sm:space-y-4 font-sans text-xs">
         {/* Puzzle Card Info */}
         <div className="p-2.5 sm:p-3 bg-[#161616] border border-[#262626] rounded-md space-y-1.5 sm:space-y-2">
           <div className="flex items-center justify-between">

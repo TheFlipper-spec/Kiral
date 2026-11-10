@@ -164,7 +164,7 @@ export const OpeningsPanel: React.FC<OpeningsPanelProps> = ({
       </div>
 
       {/* Main active opening learning stage */}
-      <div className="p-4 flex-1 space-y-4">
+      <div className="p-4 flex-1 overflow-visible lg:overflow-y-auto space-y-4">
         {/* Title & Key Ideas */}
         <div className="p-3 rounded-lg border border-[#262626] bg-[#161616]">
           <div className="flex items-center justify-between mb-1.5">

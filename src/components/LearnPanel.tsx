@@ -91,7 +91,7 @@ export const LearnPanel: React.FC<LearnPanelProps> = ({
       </div>
 
       {/* Body: Puzzles or Openings */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-visible lg:overflow-hidden">
         {activeTab === 'puzzles' ? (
           <PuzzlePanel
             puzzle={puzzle}

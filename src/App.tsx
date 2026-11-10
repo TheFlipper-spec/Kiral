@@ -3244,7 +3244,7 @@ export const App: React.FC = () => {
           />
         </section>
 
-        <section className="h-full overflow-hidden lg:border-l lg:border-[#262626] bg-[#0E0E0E]">
+        <section className="h-auto lg:h-full overflow-visible lg:overflow-hidden lg:border-l lg:border-[#262626] bg-[#0E0E0E]">
           {gameMode === 'learn' || gameMode === 'puzzles' ? (
             <LearnPanel
               activeTab={activeLearnTab}
