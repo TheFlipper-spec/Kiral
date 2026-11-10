@@ -63,7 +63,7 @@ export const PuzzlePanel: React.FC<PuzzlePanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#121212] border-l border-[#262626] select-none text-[#EDEDED] font-sans">
+    <div className="flex flex-col h-auto lg:h-full bg-[#121212] lg:border-l border-[#262626] select-none text-[#EDEDED] font-sans">
       {/* Top Header */}
       <div className="p-2.5 sm:p-4 border-b border-[#262626] bg-[#0E0E0E] flex items-center justify-between">
         <div className="flex items-center gap-2">

@@ -62,7 +62,7 @@ export const OpeningsPanel: React.FC<OpeningsPanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#121212] border-l border-[#262626] text-[#EDEDED] select-none overflow-y-auto">
+    <div className="flex flex-col h-auto lg:h-full bg-[#121212] lg:border-l border-[#262626] text-[#EDEDED] select-none overflow-visible lg:overflow-y-auto">
       {/* Category selector */}
       <div className="p-3 border-b border-[#262626] bg-[#0E0E0E]">
         <div className="flex items-center justify-between mb-2">

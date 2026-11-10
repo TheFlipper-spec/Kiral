@@ -54,7 +54,7 @@ export const LearnPanel: React.FC<LearnPanelProps> = ({
   onResetOpening
 }) => {
   return (
-    <div className="flex flex-col h-full bg-[#121212] select-none overflow-hidden">
+    <div className="flex flex-col h-auto lg:h-full bg-[#121212] select-none overflow-visible lg:overflow-hidden">
       {/* Top Learn Branch Switcher */}
       <div className="px-3 py-2 bg-[#0C0C0C] border-b border-[#222222] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-1.5">
