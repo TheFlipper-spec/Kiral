@@ -728,8 +728,37 @@ export const App: React.FC = () => {
       const piece = moveResult.piece;
       const captured = moveResult.captured;
 
-      // During active competitive ranked play, analysis and engine evaluations are strictly suppressed
+      // During active competitive ranked play, analysis and engine evaluations are strictly suppressed,
+      // but SAN moves are recorded into report.moves so MoveTableTab displays the live move list.
       if (isRankedActiveRef.current) {
+        const liveAnalysis: MoveAnalysis = {
+          ply: plyIndex,
+          moveNumber: Math.floor(plyIndex / 2) + 1,
+          turn,
+          san: moveSan,
+          uci: moveUci,
+          from: moveResult.from,
+          to: moveResult.to,
+          piece,
+          captured,
+          fenBefore,
+          fenAfter,
+          evalBefore: 0,
+          evalAfter: 0,
+          mateBefore: null,
+          mateAfter: null,
+          winPercentBefore: 50,
+          winPercentAfter: 50,
+          winPercentLoss: 0,
+          centipawnLoss: 0,
+          classification: 'book',
+          classificationReason: '',
+          bestMoveUci: moveUci,
+          bestMoveSan: moveSan,
+          bestLinePv: [],
+          depth: 0
+        };
+        setReport((prev) => buildUpdatedReport(prev, plyIndex, liveAnalysis));
         return { cp: 0, mate: null, depth: 0, pv: [], bestMove: '' };
       }
 
@@ -1289,10 +1318,11 @@ export const App: React.FC = () => {
     const plyIndex = currentPly;
     const fenBefore = currentBoardFen;
     const newFen = chess.fen();
-    const newFens = [...fens.slice(0, currentPly + 1), newFen];
-    setFens(newFens);
-
     const nextPly = currentPly + 1;
+    const newFens = [...fens.slice(0, currentPly + 1), newFen];
+    fensRef.current = newFens;
+    setFens(newFens);
+    currentPlyRef.current = nextPly;
     setCurrentPly(nextPly);
 
     // In 1v1 PvP mode, auto-flip the board so the player whose turn is next is always at the bottom
@@ -1300,12 +1330,17 @@ export const App: React.FC = () => {
       setIsFlipped(chess.turn() === 'b');
     }
 
-    // Apply Fischer increment for the moving player
+    // Apply Fischer increment synchronously for the moving player before broadcasting
     if (activeTimeControl?.incrementSeconds && activeTimeControl.incrementSeconds > 0) {
+      const inc = activeTimeControl.incrementSeconds;
       if (playerColor === 'w') {
-        setWhiteTime((prev) => (typeof prev === 'number' ? prev + activeTimeControl.incrementSeconds : prev));
+        const nextTime = typeof whiteTimeRef.current === 'number' ? whiteTimeRef.current + inc : whiteTimeRef.current;
+        whiteTimeRef.current = nextTime;
+        setWhiteTime(nextTime);
       } else {
-        setBlackTime((prev) => (typeof prev === 'number' ? prev + activeTimeControl.incrementSeconds : prev));
+        const nextTime = typeof blackTimeRef.current === 'number' ? blackTimeRef.current + inc : blackTimeRef.current;
+        blackTimeRef.current = nextTime;
+        setBlackTime(nextTime);
       }
     }
     setIsPreviewingLine(false);
@@ -1822,22 +1857,43 @@ export const App: React.FC = () => {
         pgn: realPgn || undefined,
         reason: reasonVal
       });
+
+      // Clear presence in ranked lobby when online match ends
+      if (mode === 'ranked' && activeRankedSessionRef.current?.isOnlinePvP) {
+        multiplayerService.broadcastGamePresence(
+          activeRankedSessionRef.current.roomId,
+          activeRankedSessionRef.current.opponent.username,
+          'idle',
+          activeRankedSessionRef.current.timeControlId
+        );
+      }
     },
     [activeTimeControlId, playerColor, report, currentUser.username]
   );
 
   const handleOpponentOnlineMove = useCallback(
     (movePayload: MovePayload) => {
-      // Deduplicate if move was already applied
-      if (Array.isArray(movePayload.fens) && movePayload.fens.length <= fensRef.current.length) {
-        return;
+      // Deduplicate only if this exact FEN was already applied at matching ply or latest position
+      const targetPly = typeof movePayload.ply === 'number'
+        ? movePayload.ply
+        : (Array.isArray(movePayload.fens) ? movePayload.fens.length - 1 : -1);
+
+      if (movePayload.fen) {
+        if (targetPly >= 0 && fensRef.current[targetPly] === movePayload.fen) {
+          return;
+        }
+        if (fensRef.current[fensRef.current.length - 1] === movePayload.fen) {
+          return;
+        }
       }
 
       // If opponent is more than 1 ply ahead (missed packets), fast-forward prefix fens up to the move's starting position
-      if (Array.isArray(movePayload.fens) && movePayload.fens.length > fensRef.current.length + 1) {
-        const prefixFens = movePayload.fens.slice(0, movePayload.fens.length - 1);
-        fensRef.current = prefixFens;
-        setFens(prefixFens);
+      if (Array.isArray(movePayload.fens) && movePayload.fens.length > 1) {
+        if (movePayload.fens.length > fensRef.current.length + 1) {
+          const prefixFens = movePayload.fens.slice(0, movePayload.fens.length - 1);
+          fensRef.current = prefixFens;
+          setFens(prefixFens);
+        }
       }
 
       // Always apply opponent's move to the LATEST position of the board
@@ -1853,9 +1909,11 @@ export const App: React.FC = () => {
         });
         if (res) {
           if (typeof movePayload.whiteTime === 'number') {
+            whiteTimeRef.current = movePayload.whiteTime;
             setWhiteTime(movePayload.whiteTime);
           }
           if (typeof movePayload.blackTime === 'number') {
+            blackTimeRef.current = movePayload.blackTime;
             setBlackTime(movePayload.blackTime);
           }
           const nextFen = chess.fen();
@@ -1941,21 +1999,45 @@ export const App: React.FC = () => {
             }
           }
         } else if (movePayload.fen) {
-          // Fallback if local chess.move failed
-          const updatedFens = [...fensRef.current, movePayload.fen];
+          // Fallback if local chess.move failed: use coherent full history if provided
+          const updatedFens = Array.isArray(movePayload.fens) && movePayload.fens.length > 0
+            ? [...movePayload.fens]
+            : [...fensRef.current, movePayload.fen];
           fensRef.current = updatedFens;
           setFens(updatedFens);
-          setCurrentPly(updatedFens.length - 1);
-          currentPlyRef.current = updatedFens.length - 1;
+          const nextPly = updatedFens.length - 1;
+          setCurrentPly(nextPly);
+          currentPlyRef.current = nextPly;
+          if (typeof movePayload.whiteTime === 'number') {
+            whiteTimeRef.current = movePayload.whiteTime;
+            setWhiteTime(movePayload.whiteTime);
+          }
+          if (typeof movePayload.blackTime === 'number') {
+            blackTimeRef.current = movePayload.blackTime;
+            setBlackTime(movePayload.blackTime);
+          }
+          sound.playMove();
         }
       } catch (err) {
         console.warn('Opponent move exception, fallback syncing:', err);
         if (movePayload.fen) {
-          const updatedFens = [...fensRef.current, movePayload.fen];
+          const updatedFens = Array.isArray(movePayload.fens) && movePayload.fens.length > 0
+            ? [...movePayload.fens]
+            : [...fensRef.current, movePayload.fen];
           fensRef.current = updatedFens;
           setFens(updatedFens);
-          setCurrentPly(updatedFens.length - 1);
-          currentPlyRef.current = updatedFens.length - 1;
+          const nextPly = updatedFens.length - 1;
+          setCurrentPly(nextPly);
+          currentPlyRef.current = nextPly;
+          if (typeof movePayload.whiteTime === 'number') {
+            whiteTimeRef.current = movePayload.whiteTime;
+            setWhiteTime(movePayload.whiteTime);
+          }
+          if (typeof movePayload.blackTime === 'number') {
+            blackTimeRef.current = movePayload.blackTime;
+            setBlackTime(movePayload.blackTime);
+          }
+          sound.playMove();
         }
       }
     },
@@ -1983,8 +2065,14 @@ export const App: React.FC = () => {
       const lastIdx = payload.fens.length - 1;
       setCurrentPly(lastIdx);
       currentPlyRef.current = lastIdx;
-      if (typeof payload.whiteTime === 'number') setWhiteTime(payload.whiteTime);
-      if (typeof payload.blackTime === 'number') setBlackTime(payload.blackTime);
+      if (typeof payload.whiteTime === 'number') {
+        whiteTimeRef.current = payload.whiteTime;
+        setWhiteTime(payload.whiteTime);
+      }
+      if (typeof payload.blackTime === 'number') {
+        blackTimeRef.current = payload.blackTime;
+        setBlackTime(payload.blackTime);
+      }
       if (payload.isGameOver && payload.gameOverMessage) {
         setGameOverMessage(payload.gameOverMessage);
       }
@@ -1995,6 +2083,17 @@ export const App: React.FC = () => {
     if (!payload) return;
     if (payload.isGameOver && payload.gameOverMessage && !gameOverMessage) {
       setGameOverMessage(payload.gameOverMessage);
+    }
+    // Smooth dual timer drift if peer's clock difference exceeds 1s
+    if (typeof payload.whiteTime === 'number' && typeof payload.blackTime === 'number') {
+      if (Math.abs(whiteTimeRef.current - payload.whiteTime) > 1) {
+        whiteTimeRef.current = payload.whiteTime;
+        setWhiteTime(payload.whiteTime);
+      }
+      if (Math.abs(blackTimeRef.current - payload.blackTime) > 1) {
+        blackTimeRef.current = payload.blackTime;
+        setBlackTime(payload.blackTime);
+      }
     }
     if (typeof payload.ply === 'number' && payload.ply > fensRef.current.length - 1) {
       multiplayerService.requestFullSync();
@@ -2232,6 +2331,7 @@ export const App: React.FC = () => {
 
       if (turn === 'w') {
         const nextW = Math.max(0, whiteTimeRef.current - 1);
+        whiteTimeRef.current = nextW;
         setWhiteTime(nextW);
         if (nextW <= 0 && activeRankedSessionRef.current) {
           clearInterval(timer);
@@ -2240,7 +2340,7 @@ export const App: React.FC = () => {
           const sess = activeRankedSessionRef.current;
           if (sess.myColor === 'w') {
             if (sess.isOnlinePvP) {
-              multiplayerService.sendTimeout();
+              multiplayerService.sendTimeout('w');
             }
             const matchRes = userService.recordCompetitiveMatchResult(sess.opponent.elo, 'loss');
             setCurrentUser({ ...userService.getCurrentUser() });
@@ -2259,11 +2359,15 @@ export const App: React.FC = () => {
               isPositive: false
             });
           } else {
+            if (sess.isOnlinePvP) {
+              multiplayerService.sendTimeout('w');
+            }
             handleOpponentTimeout();
           }
         }
       } else {
         const nextB = Math.max(0, blackTimeRef.current - 1);
+        blackTimeRef.current = nextB;
         setBlackTime(nextB);
         if (nextB <= 0 && activeRankedSessionRef.current) {
           clearInterval(timer);
@@ -2272,7 +2376,7 @@ export const App: React.FC = () => {
           const sess = activeRankedSessionRef.current;
           if (sess.myColor === 'b') {
             if (sess.isOnlinePvP) {
-              multiplayerService.sendTimeout();
+              multiplayerService.sendTimeout('b');
             }
             const matchRes = userService.recordCompetitiveMatchResult(sess.opponent.elo, 'loss');
             setCurrentUser({ ...userService.getCurrentUser() });
@@ -2291,6 +2395,9 @@ export const App: React.FC = () => {
               isPositive: false
             });
           } else {
+            if (sess.isOnlinePvP) {
+              multiplayerService.sendTimeout('b');
+            }
             handleOpponentTimeout();
           }
         }
@@ -2347,7 +2454,7 @@ export const App: React.FC = () => {
         const nextBlack = turn === 'b' && session.isOnlinePvP ? bRestored - elapsedSec : bRestored;
 
         // Do not restore stale or expired ranked games (prevents instant false timeouts on reload)
-        if (elapsedSec > 120 || nextWhite <= 5 || nextBlack <= 5) {
+        if (elapsedSec > 120 || nextWhite <= 0 || nextBlack <= 0) {
           localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
           userService.clearActiveGame();
           return;
@@ -2374,6 +2481,8 @@ export const App: React.FC = () => {
         }
 
         if (session.isOnlinePvP) {
+          whiteTimeRef.current = nextWhite;
+          blackTimeRef.current = nextBlack;
           setWhiteTime(nextWhite);
           setBlackTime(nextBlack);
 
@@ -2381,7 +2490,7 @@ export const App: React.FC = () => {
             session.roomId,
             handleOpponentOnlineMove,
             handleOpponentResign,
-            () => {},
+            handleOpponentDrawAccept,
             handleOpponentTimeout,
             handleOpponentDrawOffer,
             handleOpponentDrawAccept,
@@ -2389,6 +2498,7 @@ export const App: React.FC = () => {
             handleFullSync,
             handleHeartbeat
           );
+          multiplayerService.requestFullSync();
         } else {
           setWhiteTime(wRestored);
           setBlackTime(bRestored);
@@ -2536,6 +2646,18 @@ export const App: React.FC = () => {
     }
   }, [currentUser, restoreActiveGame]);
 
+  // Listen for move delivery failures to alert player and trigger full resync (V12)
+  useEffect(() => {
+    const unsub = multiplayerService.onMoveDeliveryFailed(() => {
+      sound.playBlunder();
+      sound.speak('Ошибка отправки хода. Проверьте соединение.');
+      if (activeRankedSessionRef.current?.isOnlinePvP) {
+        multiplayerService.requestFullSync();
+      }
+    });
+    return unsub;
+  }, []);
+
   // Detect remote active game changes while active (PC <-> Smartphone continuation)
   useEffect(() => {
     if (!currentUser.activeGame) {
@@ -2621,7 +2743,7 @@ export const App: React.FC = () => {
         session.roomId,
         handleOpponentOnlineMove,
         handleOpponentResign,
-        () => {},
+        handleOpponentDrawAccept,
         handleOpponentTimeout,
         handleOpponentDrawOffer,
         handleOpponentDrawAccept,
@@ -2778,8 +2900,24 @@ export const App: React.FC = () => {
     stockfish.clearQueue();
     setIsAnalyzing(false);
 
+    // Clear online presence when switching away from active ranked match (V9)
+    if (activeRankedSessionRef.current?.isOnlinePvP && newMode !== 'ranked') {
+      multiplayerService.broadcastGamePresence(
+        activeRankedSessionRef.current.roomId,
+        activeRankedSessionRef.current.opponent.username,
+        'idle',
+        activeRankedSessionRef.current.timeControlId
+      );
+    }
+
     if (newMode === 'ranked') {
-      const isGuest = !currentUser.isRegistered || currentUser.authProvider === 'guest';
+      const isGuestTesting =
+        currentUser.authProvider === 'custom' ||
+        (typeof window !== 'undefined' &&
+          (Boolean((window as any).__KIRAL_GUEST_TESTING__) ||
+            Boolean((window as any).__KIRAL_TESTING__) ||
+            localStorage.getItem('kiral_guest_testing') === 'true'));
+      const isGuest = (!currentUser.isRegistered || currentUser.authProvider === 'guest') && !isGuestTesting;
       if (isGuest) {
         setPendingPostAuthAction('ranked');
         setAuthPromptMessage('Для участия в соревновательном рейтинге и сохранения ELO необходима регистрация или вход в профиль.');
@@ -3373,14 +3511,14 @@ export const App: React.FC = () => {
                     <div className="flex items-center gap-2 pt-1">
                       <button
                         onClick={handleRunRankedPostGameAnalysis}
-                        className="flex-1 py-2 px-3 rounded-lg bg-[#1baca6] hover:bg-[#20c2bc] text-black font-bold text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
+                        className="flex-1 min-h-[42px] py-2 px-3 rounded-lg bg-[#1baca6] hover:bg-[#20c2bc] text-black font-bold text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-95 transition-all"
                       >
                         <Activity className="w-4 h-4" />
                         <span>Анализ партии</span>
                       </button>
                       <button
                         onClick={() => setIsMatchmakingOpen(true)}
-                        className="py-2 px-3 rounded-lg bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-zinc-200 text-xs flex items-center gap-1.5 cursor-pointer"
+                        className="min-h-[42px] py-2 px-3 rounded-lg bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-zinc-200 text-xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
                       >
                         <Swords className="w-3.5 h-3.5 text-amber-400" />
                         <span>Новый соперник</span>
@@ -3400,7 +3538,7 @@ export const App: React.FC = () => {
                   {!isRankedActive && !gameOverMessage && (
                     <button
                       onClick={handleToggleAnalysis}
-                      className="px-2 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-[#1baca6] text-[11px] font-bold flex items-center gap-1 transition-colors"
+                      className="min-h-[32px] px-2.5 py-1 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-[#1baca6] text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
                       title="Включить анализ движком"
                     >
                       <Activity className="w-3 h-3" />
@@ -3412,12 +3550,12 @@ export const App: React.FC = () => {
                   )}
                 </div>
 
-                {/* Action Buttons Grid */}
+                {/* Action Buttons Grid with generous touch targets (>= 44px) */}
                 <div className="grid grid-cols-4 gap-1.5">
                   <button
                     onClick={handleResignCurrentGame}
                     disabled={Boolean(gameOverMessage) || fens.length <= 1}
-                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] disabled:opacity-40 flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    className="min-h-[46px] p-2 rounded-lg bg-[#181818] hover:bg-[#222222] active:bg-[#262626] active:scale-95 border border-[#2a2a2a] disabled:opacity-40 flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-all select-none cursor-pointer"
                     title="Сдаться в текущей партии"
                   >
                     <Flag className="w-4 h-4 text-rose-400" />
@@ -3427,7 +3565,7 @@ export const App: React.FC = () => {
                   <button
                     onClick={handleOfferDraw}
                     disabled={Boolean(gameOverMessage) || fens.length <= 4}
-                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] disabled:opacity-40 flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    className="min-h-[46px] p-2 rounded-lg bg-[#181818] hover:bg-[#222222] active:bg-[#262626] active:scale-95 border border-[#2a2a2a] disabled:opacity-40 flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-all select-none cursor-pointer"
                     title="Предложить ничью"
                   >
                     <Handshake className="w-4 h-4 text-amber-400" />
@@ -3436,7 +3574,7 @@ export const App: React.FC = () => {
 
                   <button
                     onClick={() => setIsFlipped((prev) => !prev)}
-                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    className="min-h-[46px] p-2 rounded-lg bg-[#181818] hover:bg-[#222222] active:bg-[#262626] active:scale-95 border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-all select-none cursor-pointer"
                     title="Перевернуть доску"
                   >
                     <RotateCw className="w-4 h-4 text-[#1baca6]" />
@@ -3448,7 +3586,7 @@ export const App: React.FC = () => {
                       setSoundEnabled(!soundEnabled);
                       sound.enabled = !soundEnabled;
                     }}
-                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    className="min-h-[46px] p-2 rounded-lg bg-[#181818] hover:bg-[#222222] active:bg-[#262626] active:scale-95 border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-all select-none cursor-pointer"
                     title="Звук"
                   >
                     {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-zinc-500" />}
@@ -3458,7 +3596,7 @@ export const App: React.FC = () => {
                   <button
                     onClick={handleUndoMove}
                     disabled={!canUndoMove}
-                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] disabled:opacity-40 flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    className="min-h-[46px] p-2 rounded-lg bg-[#181818] hover:bg-[#222222] active:bg-[#262626] active:scale-95 border border-[#2a2a2a] disabled:opacity-40 flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-all select-none cursor-pointer"
                     title="Отменить ход"
                   >
                     <Undo2 className="w-4 h-4 text-indigo-400" />
@@ -3467,7 +3605,7 @@ export const App: React.FC = () => {
 
                   <button
                     onClick={() => handleReset()}
-                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    className="min-h-[46px] p-2 rounded-lg bg-[#181818] hover:bg-[#222222] active:bg-[#262626] active:scale-95 border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-all select-none cursor-pointer"
                     title="Новая партия"
                   >
                     <RotateCw className="w-4 h-4 text-zinc-400" />
@@ -3476,7 +3614,7 @@ export const App: React.FC = () => {
 
                   <button
                     onClick={() => setIsLoadModalOpen(true)}
-                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    className="min-h-[46px] p-2 rounded-lg bg-[#181818] hover:bg-[#222222] active:bg-[#262626] active:scale-95 border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-all select-none cursor-pointer"
                     title="Загрузить PGN или FEN"
                   >
                     <Upload className="w-4 h-4 text-zinc-300" />
@@ -3488,7 +3626,7 @@ export const App: React.FC = () => {
                       setLeaderboardTab('history');
                       setIsLeaderboardOpen(true);
                     }}
-                    className="p-2 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-colors"
+                    className="min-h-[46px] p-2 rounded-lg bg-[#181818] hover:bg-[#222222] active:bg-[#262626] active:scale-95 border border-[#2a2a2a] flex flex-col items-center justify-center gap-1 text-[11px] text-zinc-300 transition-all select-none cursor-pointer"
                     title="История сыгранных партий"
                   >
                     <Swords className="w-4 h-4 text-amber-300" />

@@ -638,7 +638,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
   if (activeMistake?.pieceHintRevealed && activeMistake.item.pieceSquare) {
     customSquareStyles[activeMistake.item.pieceSquare] = {
       backgroundColor: 'rgba(27, 172, 166, 0.35)',
-      boxShadow: 'inset 0 0 16px rgba(27, 172, 166, 0.9), 0 0 8px rgba(27, 172, 166, 0.6)'
+      boxShadow: 'inset 0 0 0 2px rgba(27, 172, 166, 0.9)'
     };
   }
 
@@ -884,14 +884,14 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           {/* Interactive Pawn Promotion Selector Modal */}
           {pendingPromotion && (
             <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-[3px] flex items-center justify-center p-3 animate-in fade-in duration-200">
-              <div className="bg-[#141414] border border-[#333333] rounded-xl p-3.5 shadow-2xl flex flex-col items-center max-w-[280px] w-full">
-                <div className="flex items-center justify-between w-full mb-2.5">
-                  <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-[#CCCCCC]">
+              <div className="bg-[#141414] border border-[#333333] rounded-xl p-4 shadow-2xl flex flex-col items-center max-w-[300px] w-full">
+                <div className="flex items-center justify-between w-full mb-3">
+                  <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#EDEDED]">
                     Превращение пешки
                   </span>
                   <button
                     onClick={() => setPendingPromotion(null)}
-                    className="text-zinc-500 hover:text-zinc-200 transition-colors p-0.5"
+                    className="min-w-[36px] min-h-[36px] p-1.5 flex items-center justify-center rounded-lg text-zinc-400 hover:text-white hover:bg-[#262626] active:scale-95 transition-all"
                     title="Отмена"
                   >
                     <X className="w-4 h-4" />
@@ -914,13 +914,13 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
                           onPieceDrop(sourceSquare, targetSquare, p.type);
                         }
                       }}
-                      className="flex flex-col items-center justify-center p-2 rounded-lg bg-[#1F1F1F] hover:bg-[#2A2A2A] border border-[#333333] hover:border-[#1baca6] transition-all group cursor-pointer"
+                      className="min-h-[64px] flex flex-col items-center justify-center p-2 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] active:scale-95 active:bg-[#303030] border border-[#333333] hover:border-[#1baca6] transition-all group cursor-pointer select-none"
                       title={p.name}
                     >
-                      <span className="text-3xl leading-none group-hover:scale-110 transition-transform text-white">
+                      <span className="text-3xl sm:text-4xl leading-none text-white transition-transform group-hover:scale-110">
                         {p.symbol}
                       </span>
-                      <span className="text-[10px] font-mono mt-1 text-zinc-400 group-hover:text-white">
+                      <span className="text-[11px] font-mono font-medium mt-1 text-zinc-300 group-hover:text-white">
                         {p.name}
                       </span>
                     </button>
@@ -955,10 +955,10 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
               >
                 {m.isCapture ? (
                   // Capture ring
-                  <div className="w-[82%] h-[82%] rounded-full border-[3.5px] border-[#1baca6]/90 bg-[#1baca6]/15 group-hover:border-[#1baca6] group-hover:bg-[#1baca6]/30 group-hover:scale-105 transition-all shadow-[0_0_8px_rgba(0,0,0,0.4)]" />
+                  <div className="w-[84%] h-[84%] rounded-full border-[3.5px] border-[#1baca6]/90 bg-[#1baca6]/15 group-hover:border-[#1baca6] group-hover:bg-[#1baca6]/30 group-hover:scale-105 transition-all shadow-sm" />
                 ) : (
                   // Empty square destination dot
-                  <div className="w-[30%] h-[30%] rounded-full bg-[#1baca6]/85 border border-black/35 group-hover:bg-[#1baca6] group-hover:scale-125 transition-all shadow-[0_1px_5px_rgba(0,0,0,0.45)]" />
+                  <div className="w-[32%] h-[32%] rounded-full bg-[#1baca6]/85 border border-black/35 group-hover:bg-[#1baca6] group-hover:scale-125 transition-all shadow-sm" />
                 )}
               </div>
             );
@@ -1192,30 +1192,30 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             {canUndoMove && onUndoMove && (
               <button
                 onClick={onUndoMove}
-                className="px-1.5 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#3a3a3a] text-[#f0c15c] hover:text-[#ffd875] text-[10px] flex items-center gap-1 transition-colors"
+                className="min-h-[30px] sm:min-h-[34px] px-2 py-1 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#3a3a3a] text-[#f0c15c] hover:text-[#ffd875] text-[11px] font-mono flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                 title="Отменить последний ход (Ctrl+Z)"
               >
-                <Undo2 className="w-3 h-3" />
+                <Undo2 className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Отменить ход</span>
               </button>
             )}
             {canOfferDraw && onOfferDraw && (
               <button
                 onClick={onOfferDraw}
-                className="px-1.5 py-0.5 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#3a3a3a] text-[#CCCCCC] hover:text-white text-[10px] flex items-center gap-1 transition-colors"
+                className="min-h-[30px] sm:min-h-[34px] px-2 py-1 rounded bg-[#1C1C1C] hover:bg-[#262626] border border-[#3a3a3a] text-[#CCCCCC] hover:text-white text-[11px] font-mono flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                 title="Предложить ничью сопернику"
               >
-                <Handshake className="w-3 h-3 text-[#1baca6]" />
+                <Handshake className="w-3.5 h-3.5 text-[#1baca6]" />
                 <span className="hidden sm:inline">Ничья</span>
               </button>
             )}
             {canResign && onResignGame && (
               <button
                 onClick={onResignGame}
-                className="px-1.5 py-0.5 rounded bg-rose-950/50 hover:bg-rose-900/70 border border-rose-800/60 text-rose-300 text-[10px] flex items-center gap-1 transition-colors"
+                className="min-h-[30px] sm:min-h-[34px] px-2 py-1 rounded bg-rose-950/50 hover:bg-rose-900/70 border border-rose-800/60 text-rose-300 text-[11px] font-mono flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                 title="Сдаться в текущей партии"
               >
-                <Flag className="w-3 h-3" />
+                <Flag className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Сдаться</span>
               </button>
             )}
@@ -1299,7 +1299,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           <button
             onClick={onGoToStart}
             disabled={currentPly <= 0}
-            className="p-1.5 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+            className="w-9 h-9 sm:w-10 sm:h-10 min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] flex items-center justify-center rounded-lg hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-95"
             title="В начало (Home)"
           >
             <ChevronFirst className="w-4 h-4" strokeWidth={1.5} />
@@ -1307,7 +1307,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           <button
             onClick={onGoToPrev}
             disabled={currentPly <= 0}
-            className="p-1.5 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+            className="w-9 h-9 sm:w-10 sm:h-10 min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] flex items-center justify-center rounded-lg hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-95"
             title="Назад (ArrowLeft)"
           >
             <ChevronLeft className="w-4 h-4" strokeWidth={1.5} />
@@ -1315,7 +1315,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           <button
             onClick={onTogglePlay}
             disabled={totalPlies === 0}
-            className="p-2 rounded bg-[#1C1C1C] hover:bg-[#262626] text-[#EDEDED] hover:text-white transition-colors"
+            className="w-9 h-9 sm:w-10 sm:h-10 min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] flex items-center justify-center rounded-lg bg-[#1C1C1C] hover:bg-[#262626] text-[#EDEDED] hover:text-white transition-all active:scale-95 border border-[#2d2d2d]"
             title={isPlaying ? 'Пауза (Space)' : 'Воспроизведение (Space)'}
           >
             {isPlaying ? (
@@ -1327,7 +1327,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           <button
             onClick={onGoToNext}
             disabled={currentPly >= totalPlies}
-            className="p-1.5 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+            className="w-9 h-9 sm:w-10 sm:h-10 min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] flex items-center justify-center rounded-lg hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-95"
             title="Вперед (ArrowRight)"
           >
             <ChevronRight className="w-4 h-4" strokeWidth={1.5} />
@@ -1335,7 +1335,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           <button
             onClick={onGoToEnd}
             disabled={currentPly >= totalPlies}
-            className="p-1.5 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+            className="w-9 h-9 sm:w-10 sm:h-10 min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] flex items-center justify-center rounded-lg hover:bg-[#202020] text-[#CCCCCC] hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-95"
             title="В конец (End)"
           >
             <ChevronLast className="w-4 h-4" strokeWidth={1.5} />
@@ -1347,7 +1347,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           {onRestartGame && !isSpectating && (
             <button
               onClick={onRestartGame}
-              className="p-1.5 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white transition-colors"
+              className="w-9 h-9 sm:w-10 sm:h-10 min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] flex items-center justify-center rounded-lg hover:bg-[#202020] text-[#CCCCCC] hover:text-white transition-all active:scale-95"
               title="Сброс / Новая партия"
             >
               <RotateCw className="w-4 h-4" strokeWidth={1.5} />
@@ -1355,7 +1355,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           )}
           <button
             onClick={onToggleSound}
-            className={`p-1.5 rounded transition-colors ${
+            className={`w-9 h-9 sm:w-10 sm:h-10 min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] flex items-center justify-center rounded-lg transition-all active:scale-95 ${
               soundEnabled
                 ? 'text-[#CCCCCC] hover:bg-[#202020] hover:text-white'
                 : 'text-[#666666] hover:bg-[#202020]'
@@ -1370,7 +1370,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
           </button>
           <button
             onClick={onFlip}
-            className="p-1.5 rounded hover:bg-[#202020] text-[#CCCCCC] hover:text-white transition-colors"
+            className="w-9 h-9 sm:w-10 sm:h-10 min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] flex items-center justify-center rounded-lg hover:bg-[#202020] text-[#CCCCCC] hover:text-white transition-all active:scale-95"
             title="Перевернуть доску (F)"
           >
             <RotateCcw className="w-4 h-4" strokeWidth={1.5} />

@@ -9,6 +9,7 @@
     "predeploy": "npm run build && node -e \"require('fs').copyFileSync('dist/index.html', 'dist/404.html'); require('fs').writeFileSync('dist/.nojekyll', '')\"",
     "deploy": "gh-pages -d dist",
     "lint": "oxlint",
+    "test": "node scripts/run-tests.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

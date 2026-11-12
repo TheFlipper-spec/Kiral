@@ -75,10 +75,18 @@ class MultiplayerService {
   private liveGamesListeners: OnLiveGamesChange[] = [];
   private pendingMoves: Map<string, { move: MovePayload; attempts: number; timer?: any }> = new Map();
   private activeRoomId: string | null = null;
+  private moveFailureListeners: ((failedMove: MovePayload) => void)[] = [];
 
   constructor() {
     this.supabase = sharedSupabase;
     this.initGlobalLobby();
+  }
+
+  public onMoveDeliveryFailed(listener: (failedMove: MovePayload) => void): () => void {
+    this.moveFailureListeners.push(listener);
+    return () => {
+      this.moveFailureListeners = this.moveFailureListeners.filter((l) => l !== listener);
+    };
   }
 
   /**
@@ -308,9 +316,12 @@ class MultiplayerService {
     };
 
     let intervalId: any = null;
+    let isMatched = false;
+    const handledTickets = new Set<string>();
 
     const cleanup = () => {
       this.isSearching = false;
+      isMatched = true;
       if (intervalId) clearInterval(intervalId);
       searchChannel.unsubscribe();
       this.supabase.removeChannel(searchChannel);
@@ -318,13 +329,21 @@ class MultiplayerService {
 
     searchChannel
       .on('broadcast', { event: 'search_ticket' }, async ({ payload }) => {
-        if (!this.isSearching || !payload || payload.playerId === player.id) return;
+        if (!this.isSearching || isMatched || !payload || payload.playerId === player.id) return;
         // Strict queue isolation: only match players with the identical time control
         if (payload.timeControlId !== timeControlId) return;
+
+        const ticketKey = `${payload.playerId}_${payload.timestamp}`;
+        if (handledTickets.has(ticketKey)) return;
 
         // Found another candidate searching!
         // To prevent both clients creating conflicting rooms, the player with the lower ID coordinates
         if (player.id < payload.playerId) {
+          handledTickets.add(ticketKey);
+          isMatched = true;
+          this.isSearching = false;
+          if (intervalId) clearInterval(intervalId);
+
           const roomId = `room_pvp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
           const iAmWhite = Math.random() > 0.5;
 
@@ -374,8 +393,9 @@ class MultiplayerService {
         }
       })
       .on('broadcast', { event: 'match_created' }, ({ payload }) => {
-        if (!this.isSearching || !payload) return;
+        if (!this.isSearching || isMatched || !payload) return;
         if (payload.player2?.id === player.id && payload.timeControlId === timeControlId) {
+          isMatched = true;
           cleanup();
           const session: RankedMatchSession = {
             roomId: payload.roomId,
@@ -394,25 +414,44 @@ class MultiplayerService {
         }
       });
 
-    await searchChannel.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        // Broadcast our ticket immediately
-        await searchChannel.send({
-          type: 'broadcast',
-          event: 'search_ticket',
-          payload: searchTicket
-        });
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      }, 4000);
 
-        // Broadcast every 2.5s while searching
-        intervalId = setInterval(() => {
-          if (!this.isSearching) return;
-          searchChannel.send({
+      searchChannel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+            resolve();
+          }
+          // Broadcast our ticket immediately
+          await searchChannel.send({
             type: 'broadcast',
             event: 'search_ticket',
             payload: searchTicket
           });
-        }, 2500);
-      }
+
+          // Broadcast every 2.5s while searching
+          intervalId = setInterval(() => {
+            if (!this.isSearching || isMatched) return;
+            searchChannel.send({
+              type: 'broadcast',
+              event: 'search_ticket',
+              payload: searchTicket
+            });
+          }, 2500);
+        } else if (status === 'CHANNEL_ERROR' && !settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
     });
 
     return () => {
@@ -492,7 +531,7 @@ class MultiplayerService {
       return;
     }
 
-    this.leaveGameRoom();
+    await this.leaveGameRoom();
     this.activeRoomId = roomId;
 
     this.gameChannel = this.supabase.channel(`game_${roomId}`, {
@@ -549,10 +588,31 @@ class MultiplayerService {
         else onDraw();
       })
       .on('broadcast', { event: 'draw' }, () => {
-        onDraw();
+        if (onDrawAccept) onDrawAccept();
+        else onDraw();
       });
 
-    await this.gameChannel.subscribe();
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      }, 4000);
+
+      this.gameChannel!.subscribe((status) => {
+        if (status === 'SUBSCRIBED' && !settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve();
+        } else if (status === 'CHANNEL_ERROR' && !settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
+    });
   }
 
   /**
@@ -569,7 +629,7 @@ class MultiplayerService {
       onHeartbeat?: (payload: any) => void;
     }
   ): Promise<() => void> {
-    this.leaveGameRoom();
+    await this.leaveGameRoom();
     this.activeRoomId = roomId;
 
     this.gameChannel = this.supabase.channel(`game_${roomId}`, {
@@ -589,6 +649,9 @@ class MultiplayerService {
       .on('broadcast', { event: 'resign' }, () => {
         callbacks.onResign();
       })
+      .on('broadcast', { event: 'draw_accept' }, () => {
+        callbacks.onDraw();
+      })
       .on('broadcast', { event: 'draw' }, () => {
         callbacks.onDraw();
       })
@@ -596,17 +659,36 @@ class MultiplayerService {
         if (callbacks.onTimeout) callbacks.onTimeout();
       });
 
-    await this.gameChannel.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        // Request active board state from players
-        setTimeout(() => {
-          this.gameChannel?.send({
-            type: 'broadcast',
-            event: 'request_sync',
-            payload: { isSpectator: true }
-          });
-        }, 150);
-      }
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      }, 4000);
+
+      this.gameChannel!.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+            resolve();
+          }
+          // Request active board state from players
+          setTimeout(() => {
+            this.gameChannel?.send({
+              type: 'broadcast',
+              event: 'request_sync',
+              payload: { isSpectator: true }
+            });
+          }, 150);
+        } else if (status === 'CHANNEL_ERROR' && !settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
     });
 
     return () => {
@@ -642,6 +724,11 @@ class MultiplayerService {
       attempts++;
       if (attempts >= 5) {
         this.pendingMoves.delete(moveId);
+        this.moveFailureListeners.forEach((fn) => {
+          try {
+            fn(move);
+          } catch {}
+        });
         return;
       }
       executeSend();
@@ -717,11 +804,20 @@ class MultiplayerService {
    */
   public async sendDrawAccept() {
     if (!this.gameChannel) return;
-    await this.gameChannel.send({
-      type: 'broadcast',
-      event: 'draw',
-      payload: { playerId: this.myPlayer?.id }
-    });
+    try {
+      await this.gameChannel.send({
+        type: 'broadcast',
+        event: 'draw_accept',
+        payload: { playerId: this.myPlayer?.id }
+      });
+    } catch {}
+    try {
+      await this.gameChannel.send({
+        type: 'broadcast',
+        event: 'draw',
+        payload: { playerId: this.myPlayer?.id }
+      });
+    } catch {}
   }
 
   /**
@@ -745,12 +841,12 @@ class MultiplayerService {
   /**
    * Sends timeout notification to opponent when local clock reaches 0
    */
-  public async sendTimeout() {
+  public async sendTimeout(timedOutColor?: 'w' | 'b') {
     if (!this.gameChannel) return;
     await this.gameChannel.send({
       type: 'broadcast',
       event: 'timeout',
-      payload: { playerId: this.myPlayer?.id }
+      payload: { playerId: this.myPlayer?.id, timedOutColor }
     });
   }
 
@@ -758,18 +854,19 @@ class MultiplayerService {
     this.currentSession = session;
   }
 
-  public leaveGameRoom() {
+  public async leaveGameRoom() {
     this.pendingMoves.forEach(({ timer }) => {
       if (timer) clearTimeout(timer);
     });
     this.pendingMoves.clear();
 
     if (this.gameChannel) {
-      try {
-        this.gameChannel.unsubscribe();
-        this.supabase.removeChannel(this.gameChannel);
-      } catch {}
+      const channelToClean = this.gameChannel;
       this.gameChannel = null;
+      try {
+        await channelToClean.unsubscribe();
+        this.supabase.removeChannel(channelToClean);
+      } catch {}
     }
     this.activeRoomId = null;
     this.currentSession = null;

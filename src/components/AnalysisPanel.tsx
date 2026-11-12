@@ -312,7 +312,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
         <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => setActiveTab('moves')}
-            className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+            className={`min-h-[34px] sm:min-h-[36px] px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all border active:scale-95 cursor-pointer ${
               activeTab === 'moves'
                 ? 'bg-[#1E1E1E] border-[#383838] text-[#EDEDED]'
                 : 'border-transparent text-[#777777] hover:text-[#CCCCCC]'
@@ -323,7 +323,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('summary')}
-            className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+            className={`min-h-[34px] sm:min-h-[36px] px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all border active:scale-95 cursor-pointer ${
               activeTab === 'summary'
                 ? 'bg-[#1E1E1E] border-[#383838] text-[#EDEDED]'
                 : 'border-transparent text-[#777777] hover:text-[#CCCCCC]'
@@ -335,7 +335,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           {/* Mobile-only 3rd tab: Graph */}
           <button
             onClick={() => setActiveTab('graph')}
-            className={`lg:hidden px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+            className={`lg:hidden min-h-[34px] sm:min-h-[36px] px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all border active:scale-95 cursor-pointer ${
               activeTab === 'graph'
                 ? 'bg-[#1E1E1E] border-[#383838] text-[#EDEDED]'
                 : 'border-transparent text-[#777777] hover:text-[#CCCCCC]'
@@ -348,7 +348,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           {(isGameOver || mistakeCount > 0 || Boolean(activeMistake)) && (
             <button
               onClick={() => setActiveTab('mistakes')}
-              className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+              className={`min-h-[34px] sm:min-h-[36px] px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all border active:scale-95 cursor-pointer ${
                 activeTab === 'mistakes'
                   ? 'bg-rose-950/40 border-rose-800 text-rose-300'
                   : 'border-transparent text-rose-400/80 hover:text-rose-300'

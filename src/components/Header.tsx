@@ -54,79 +54,81 @@ export const Header: React.FC<HeaderProps> = ({
     <div
       className={
         isMobileBar
-          ? 'flex md:hidden landscape:hidden items-center justify-between bg-[#0E0E0E] border-t border-[#1F1F1F] px-1.5 py-1 gap-0.5 w-full'
+          ? 'grid grid-cols-6 items-center bg-[#0E0E0E] border-t border-[#1F1F1F] px-1 py-1 gap-1 w-full'
           : 'hidden md:flex landscape:flex items-center bg-[#141414] border border-[#262626] rounded-md p-0.5 shrink-0'
       }
     >
       <button
         onClick={() => onChangeMode('home')}
-        className={`${isMobileBar ? 'flex-1 justify-center px-1 py-1 text-[11px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-1 whitespace-nowrap transition-colors ${
+        className={`${isMobileBar ? 'min-h-[42px] flex-col justify-center px-1 py-1 text-[10px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-0.5 sm:gap-1 transition-all active:scale-95 ${
           gameMode === 'home'
             ? 'bg-[#222222] text-[#1baca6] font-semibold'
             : 'text-[#777777] hover:text-[#CCCCCC]'
         }`}
         title="Главная страница Kiral"
       >
-        <Home className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" strokeWidth={1.5} />
-        <span>Главная</span>
+        <Home className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
+        <span className="truncate">Главная</span>
       </button>
       <button
         onClick={() => onChangeMode('review')}
-        className={`${isMobileBar ? 'flex-1 justify-center px-1 py-1 text-[11px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-1 whitespace-nowrap transition-colors ${
+        className={`${isMobileBar ? 'min-h-[42px] flex-col justify-center px-1 py-1 text-[10px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-0.5 sm:gap-1 transition-all active:scale-95 ${
           gameMode === 'review'
             ? 'bg-[#222222] text-[#EDEDED] font-semibold'
             : 'text-[#777777] hover:text-[#CCCCCC]'
         }`}
+        title="Анализ и разбор партий"
       >
-        <BookOpen className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" strokeWidth={1.5} />
-        <span>Разбор</span>
+        <BookOpen className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
+        <span className="truncate">Разбор</span>
       </button>
       <button
         onClick={() => onChangeMode('ranked')}
-        className={`${isMobileBar ? 'flex-1 justify-center px-1 py-1 text-[11px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-1 whitespace-nowrap transition-colors ${
+        className={`${isMobileBar ? 'min-h-[42px] flex-col justify-center px-1 py-1 text-[10px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-0.5 sm:gap-1 transition-all active:scale-95 ${
           gameMode === 'ranked'
             ? 'bg-[#222222] text-[#f0c15c] font-semibold'
             : 'text-[#777777] hover:text-[#CCCCCC]'
         }`}
         title="Соревновательный режим: матчмейкинг онлайн или рейтинговый ИИ"
       >
-        <Trophy className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#f0c15c] shrink-0" strokeWidth={1.5} />
-        <span>Рейтинг</span>
+        <Trophy className="w-3.5 h-3.5 text-[#f0c15c] shrink-0" strokeWidth={1.5} />
+        <span className="truncate">Рейтинг</span>
       </button>
       <button
         onClick={() => onChangeMode('vs-ai')}
-        className={`${isMobileBar ? 'flex-1 justify-center px-1 py-1 text-[11px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-1 whitespace-nowrap transition-colors ${
+        className={`${isMobileBar ? 'min-h-[42px] flex-col justify-center px-1 py-1 text-[10px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-0.5 sm:gap-1 transition-all active:scale-95 ${
           gameMode === 'vs-ai'
             ? 'bg-[#222222] text-[#1baca6] font-semibold'
             : 'text-[#777777] hover:text-[#CCCCCC]'
         }`}
+        title="Тренировочная игра против Stockfish"
       >
-        <Swords className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" strokeWidth={1.5} />
-        <span className="hidden lg:inline">Тренировка</span>
-        <span className="lg:hidden">ИИ</span>
+        <Swords className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
+        <span className="truncate">ИИ</span>
       </button>
       <button
         onClick={() => onChangeMode('pvp')}
-        className={`${isMobileBar ? 'flex-1 justify-center px-1 py-1 text-[11px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-1 whitespace-nowrap transition-colors ${
+        className={`${isMobileBar ? 'min-h-[42px] flex-col justify-center px-1 py-1 text-[10px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-0.5 sm:gap-1 transition-all active:scale-95 ${
           gameMode === 'pvp'
             ? 'bg-[#222222] text-[#5c8bb0] font-semibold'
             : 'text-[#777777] hover:text-[#CCCCCC]'
         }`}
+        title="Игра вдвоем на одном устройстве"
       >
-        <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" strokeWidth={1.5} />
-        <span>1 на 1</span>
+        <Users className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
+        <span className="truncate">1 на 1</span>
       </button>
       <button
         onClick={() => onChangeMode('learn')}
-        className={`${isMobileBar ? 'flex-1 justify-center px-1 py-1 text-[11px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-1 whitespace-nowrap transition-colors ${
+        className={`${isMobileBar ? 'min-h-[42px] flex-col justify-center px-1 py-1 text-[10px]' : 'px-2 py-1 text-xs'} rounded font-mono flex items-center gap-0.5 sm:gap-1 transition-all active:scale-95 ${
           gameMode === 'learn' || gameMode === 'puzzles'
             ? 'bg-[#222222] text-[#96bc4b] font-semibold'
             : 'text-[#777777] hover:text-[#CCCCCC]'
         }`}
         title="Обучение: Тактические задачи и Школа дебютов"
       >
-        <GraduationCap className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" strokeWidth={1.5} />
-        <span>Обучение</span>
+        <GraduationCap className="w-3.5 h-3.5 shrink-0" strokeWidth={1.5} />
+        <span className="truncate">Учёба</span>
       </button>
     </div>
   );
@@ -232,9 +234,9 @@ export const Header: React.FC<HeaderProps> = ({
           {onToggleAnalysis && gameMode !== 'ranked' && (
             <button
               onClick={onToggleAnalysis}
-              className={`p-1.5 sm:px-2.5 sm:py-1 rounded text-xs font-mono transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 border ${
+              className={`min-h-[36px] sm:min-h-[38px] px-2 sm:px-2.5 py-1 rounded text-xs font-mono transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 border active:scale-95 ${
                 isAnalysisEnabled
-                  ? 'bg-[#1baca6]/15 text-[#1baca6] border-[#1baca6]/50 hover:bg-[#1baca6]/25 font-bold shadow-[0_0_10px_rgba(27,172,166,0.15)]'
+                  ? 'bg-[#1baca6]/15 text-[#1baca6] border-[#1baca6]/60 hover:bg-[#1baca6]/25 font-bold shadow-sm'
                   : 'bg-[#141414] text-[#777777] border-[#2a2a2a] hover:text-[#CCCCCC]'
               }`}
               title={isAnalysisEnabled ? 'Анализ ходов включен (нажмите для выключения)' : 'Анализ ходов выключен (нажмите для включения)'}
@@ -247,7 +249,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Leaderboard button */}
           <button
             onClick={onOpenLeaderboard}
-            className="p-1.5 sm:px-2.5 sm:py-1 rounded text-[#CCCCCC] hover:text-[#f0c15c] hover:bg-[#1C1C1C] border border-[#262626] transition-colors flex items-center gap-1.5 text-xs font-mono whitespace-nowrap shrink-0"
+            className="min-h-[36px] sm:min-h-[38px] px-2 sm:px-2.5 py-1 rounded text-[#CCCCCC] hover:text-[#f0c15c] hover:bg-[#1C1C1C] border border-[#262626] transition-all flex items-center gap-1.5 text-xs font-mono whitespace-nowrap shrink-0 active:scale-95 shadow-sm"
             title="Таблица лидеров (Топ по задачам и Эло)"
           >
             <Trophy className="w-3.5 h-3.5 text-[#f0c15c]" strokeWidth={1.5} />
@@ -260,7 +262,7 @@ export const Header: React.FC<HeaderProps> = ({
               {scoreDelta && (
                 <div
                   key={scoreDelta.id}
-                  className={`absolute -top-7 right-0 pointer-events-none z-50 px-2 py-0.5 rounded text-[11px] font-mono font-bold border shadow-lg animate-delta-float whitespace-nowrap ${
+                  className={`absolute -top-7 right-0 pointer-events-none z-50 px-2 py-0.5 rounded text-[11px] font-mono font-bold border shadow-sm animate-delta-float whitespace-nowrap ${
                     scoreDelta.type === 'puzzle'
                       ? 'bg-cyan-950 text-cyan-300 border-cyan-700'
                       : scoreDelta.isPositive
@@ -282,10 +284,10 @@ export const Header: React.FC<HeaderProps> = ({
 
               <button
                 onClick={onOpenAuth}
-                className={`px-1.5 sm:px-2 py-1 rounded bg-[#161616] hover:bg-[#202020] border transition-all flex items-center gap-1 sm:gap-1.5 text-xs font-mono whitespace-nowrap ${
+                className={`min-h-[36px] sm:min-h-[38px] px-1.5 sm:px-2 py-1 rounded bg-[#161616] hover:bg-[#202020] border transition-all flex items-center gap-1 sm:gap-1.5 text-xs font-mono whitespace-nowrap active:scale-95 ${
                   scoreDelta
                     ? scoreDelta.isPositive || scoreDelta.type === 'puzzle'
-                      ? 'border-emerald-600/80 shadow-[0_0_10px_rgba(34,197,94,0.15)]'
+                      ? 'border-emerald-600/80 shadow-sm'
                       : 'border-rose-600/80'
                     : 'border-[#262626]'
                 }`}
