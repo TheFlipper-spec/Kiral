@@ -54,7 +54,7 @@ export const Header: React.FC<HeaderProps> = ({
     <div
       className={
         isMobileBar
-          ? 'grid grid-cols-6 items-center bg-[#0E0E0E] border-t border-[#1F1F1F] px-1 py-1 gap-1 w-full'
+          ? 'grid md:hidden landscape:hidden grid-cols-6 items-center bg-[#0E0E0E] border-t border-[#1F1F1F] px-1 py-1 gap-1 w-full'
           : 'hidden md:flex landscape:flex items-center bg-[#141414] border border-[#262626] rounded-md p-0.5 shrink-0'
       }
     >
