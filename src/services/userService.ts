@@ -47,6 +47,11 @@ export interface UserProfile {
   activeGame?: ActiveGameSyncData | null;
 }
 
+export const isGuestUser = (user?: UserProfile | null): boolean => {
+  if (!user) return true;
+  return !user.isRegistered || user.authProvider === 'guest' || user.id.startsWith('guest-');
+};
+
 export interface CountryOption {
   code: string;
   nameRu: string;
@@ -116,7 +121,7 @@ class UserService {
   }
 
   private loadState() {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
 
     try {
       const rawUsers = localStorage.getItem(STORAGE_USERS_KEY);
@@ -370,6 +375,7 @@ class UserService {
   }
 
   private saveUsers() {
+    if (typeof localStorage === 'undefined') return;
     try {
       localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(this.users));
     } catch (e) {

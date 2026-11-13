@@ -1,6 +1,6 @@
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { supabase as sharedSupabase } from './supabaseClient';
-import type { UserProfile } from './userService';
+import { isGuestUser, type UserProfile } from './userService';
 import type { TimeControlId } from '../types/chess';
 
 export interface RankedMatchSession {
@@ -39,9 +39,26 @@ export interface DirectChallengePayload {
     id: string;
     username: string;
     elo: number;
+    avatarUrl?: string;
   };
   toUserId: string;
   roomId: string;
+  timeControlId?: TimeControlId;
+}
+
+export interface DirectChallengeResponsePayload {
+  challengeId: string;
+  roomId: string;
+  fromUserId: string;
+  toUserId: string;
+  toUser: {
+    id: string;
+    username: string;
+    elo: number;
+    avatarUrl?: string;
+  };
+  status: 'accepted' | 'declined' | 'cancelled';
+  timeControlId?: TimeControlId;
 }
 
 export interface LiveGamePresence {
@@ -59,10 +76,11 @@ type OnOpponentMove = (move: MovePayload) => void;
 type OnOpponentResign = () => void;
 type OnOpponentDraw = () => void;
 type OnDirectChallenge = (challenge: DirectChallengePayload) => void;
+type OnChallengeResponse = (response: DirectChallengeResponsePayload) => void;
 type OnFriendRequestReceived = (req: { id: string; username: string; elo: number; avatarUrl?: string; createdAt: string }) => void;
 type OnLiveGamesChange = (games: LiveGamePresence[]) => void;
 
-class MultiplayerService {
+export class MultiplayerService {
   private supabase: SupabaseClient;
   private lobbyChannel: RealtimeChannel | null = null;
   private gameChannel: RealtimeChannel | null = null;
@@ -70,6 +88,7 @@ class MultiplayerService {
   private isSearching: boolean = false;
   private myPlayer: UserProfile | null = null;
   private challengeListeners: OnDirectChallenge[] = [];
+  private challengeResponseListeners: OnChallengeResponse[] = [];
   private friendRequestListeners: OnFriendRequestReceived[] = [];
   private liveGamesMap: Map<string, LiveGamePresence> = new Map();
   private liveGamesListeners: OnLiveGamesChange[] = [];
@@ -77,8 +96,8 @@ class MultiplayerService {
   private activeRoomId: string | null = null;
   private moveFailureListeners: ((failedMove: MovePayload) => void)[] = [];
 
-  constructor() {
-    this.supabase = sharedSupabase;
+  constructor(supabaseClient: SupabaseClient = sharedSupabase) {
+    this.supabase = supabaseClient;
     this.initGlobalLobby();
   }
 
@@ -102,6 +121,13 @@ class MultiplayerService {
         .on('broadcast', { event: 'direct_challenge' }, ({ payload }) => {
           if (payload && this.myPlayer && payload.toUserId === this.myPlayer.id) {
             this.challengeListeners.forEach((fn) => fn(payload as DirectChallengePayload));
+          }
+        })
+        .on('broadcast', { event: 'challenge_response' }, ({ payload }) => {
+          if (!payload || !this.myPlayer) return;
+          const resp = payload as DirectChallengeResponsePayload;
+          if (resp.fromUserId === this.myPlayer.id || resp.toUserId === this.myPlayer.id) {
+            this.challengeResponseListeners.forEach((fn) => fn(resp));
           }
         })
         .on('broadcast', { event: 'friend_request' }, ({ payload }) => {
@@ -216,21 +242,49 @@ class MultiplayerService {
     };
   }
 
+  public onChallengeResponse(listener: OnChallengeResponse): () => void {
+    this.challengeResponseListeners.push(listener);
+    return () => {
+      this.challengeResponseListeners = this.challengeResponseListeners.filter((l) => l !== listener);
+    };
+  }
+
+  private async broadcastChallengeResponse(payload: DirectChallengeResponsePayload): Promise<void> {
+    if (!this.lobbyChannel) return;
+    try {
+      await this.lobbyChannel.send({
+        type: 'broadcast',
+        event: 'challenge_response',
+        payload
+      });
+    } catch (err) {
+      console.warn('Challenge response broadcast warning:', err);
+    }
+  }
+
   /**
    * Sends a direct game challenge to another online player
    */
-  public async sendDirectChallenge(toUserId: string): Promise<string> {
+  public async sendDirectChallenge(
+    toUserId: string,
+    options?: { challengeId?: string; timeControlId?: TimeControlId }
+  ): Promise<string> {
     if (!this.myPlayer) throw new Error('Player not initialized');
+    if (isGuestUser(this.myPlayer)) {
+      throw new Error('Ranked direct challenge rejected: guest access prohibited.');
+    }
     const roomId = `room_pvp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const challenge: DirectChallengePayload = {
-      challengeId: `chal_${Date.now()}`,
+      challengeId: options?.challengeId || `chal_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       fromUser: {
         id: this.myPlayer.id,
         username: this.myPlayer.username,
-        elo: this.myPlayer.elo
+        elo: this.myPlayer.elo,
+        avatarUrl: this.myPlayer.avatarUrl
       },
       toUserId,
-      roomId
+      roomId,
+      timeControlId: options?.timeControlId
     };
 
     if (this.lobbyChannel) {
@@ -245,6 +299,49 @@ class MultiplayerService {
   }
 
   /**
+   * Declines an incoming direct challenge and notifies the challenger
+   */
+  public async declineDirectChallenge(challenge: DirectChallengePayload): Promise<void> {
+    const myProfile = this.myPlayer;
+    await this.broadcastChallengeResponse({
+      challengeId: challenge.challengeId,
+      roomId: challenge.roomId,
+      fromUserId: challenge.fromUser.id,
+      toUserId: challenge.toUserId,
+      toUser: {
+        id: myProfile?.id || challenge.toUserId,
+        username: myProfile?.username || 'Игрок',
+        elo: myProfile?.elo || 400,
+        avatarUrl: myProfile?.avatarUrl
+      },
+      status: 'declined',
+      timeControlId: challenge.timeControlId
+    });
+  }
+
+  /**
+   * Cancels an outgoing direct challenge and notifies the recipient
+   */
+  public async cancelDirectChallenge(
+    challenge: Pick<DirectChallengePayload, 'challengeId' | 'roomId' | 'toUserId' | 'timeControlId'>
+  ): Promise<void> {
+    if (!this.myPlayer) return;
+    await this.broadcastChallengeResponse({
+      challengeId: challenge.challengeId,
+      roomId: challenge.roomId,
+      fromUserId: this.myPlayer.id,
+      toUserId: challenge.toUserId,
+      toUser: {
+        id: challenge.toUserId,
+        username: '',
+        elo: 400
+      },
+      status: 'cancelled',
+      timeControlId: challenge.timeControlId
+    });
+  }
+
+  /**
    * Accepts a direct challenge and starts game
    */
   public async acceptDirectChallenge(
@@ -254,16 +351,24 @@ class MultiplayerService {
     onDraw: OnOpponentDraw,
     onTimeout?: (fromColor?: 'w' | 'b') => void,
     onDrawOffer?: (fromUsername: string) => void,
-    onDrawAccept?: () => void
+    onDrawAccept?: () => void,
+    onRequestSync?: () => void,
+    onFullSync?: (payload: any) => void,
+    onHeartbeat?: (payload: any) => void
   ): Promise<RankedMatchSession> {
+    if (!this.myPlayer || isGuestUser(this.myPlayer)) {
+      throw new Error('Ranked challenge acceptance rejected: guest access prohibited.');
+    }
     const session: RankedMatchSession = {
       roomId: challenge.roomId,
       isOnlinePvP: true,
       myColor: 'b',
+      timeControlId: challenge.timeControlId,
       opponent: {
         id: challenge.fromUser.id,
         username: challenge.fromUser.username,
         elo: challenge.fromUser.elo,
+        avatarUrl: challenge.fromUser.avatarUrl,
         isAi: false
       }
     };
@@ -276,16 +381,36 @@ class MultiplayerService {
       onDraw,
       onTimeout,
       onDrawOffer,
-      onDrawAccept
+      onDrawAccept,
+      onRequestSync,
+      onFullSync,
+      onHeartbeat
     );
 
-    // Notify opponent that challenge was accepted
+    await this.broadcastChallengeResponse({
+      challengeId: challenge.challengeId,
+      roomId: challenge.roomId,
+      fromUserId: challenge.fromUser.id,
+      toUserId: challenge.toUserId,
+      toUser: {
+        id: this.myPlayer.id,
+        username: this.myPlayer.username,
+        elo: this.myPlayer.elo,
+        avatarUrl: this.myPlayer.avatarUrl
+      },
+      status: 'accepted',
+      timeControlId: challenge.timeControlId
+    });
+
+    // Notify opponent on game room channel as well
     if (this.gameChannel) {
-      this.gameChannel.send({
-        type: 'broadcast',
-        event: 'challenge_accepted',
-        payload: { roomId: challenge.roomId }
-      });
+      try {
+        await this.gameChannel.send({
+          type: 'broadcast',
+          event: 'challenge_accepted',
+          payload: { roomId: challenge.roomId, challengeId: challenge.challengeId }
+        });
+      } catch {}
     }
 
     return session;
@@ -299,6 +424,10 @@ class MultiplayerService {
     onMatchFound: OnMatchFound,
     timeControlId: TimeControlId = 'rapid_10_0'
   ) {
+    if (isGuestUser(player)) {
+      console.warn('Ranked matchmaking rejected: guest access prohibited.');
+      return () => {};
+    }
     this.myPlayer = player;
     this.isSearching = true;
 
@@ -330,6 +459,7 @@ class MultiplayerService {
     searchChannel
       .on('broadcast', { event: 'search_ticket' }, async ({ payload }) => {
         if (!this.isSearching || isMatched || !payload || payload.playerId === player.id) return;
+        if (payload.playerId?.startsWith('guest-') || payload.username === 'Гость') return;
         // Strict queue isolation: only match players with the identical time control
         if (payload.timeControlId !== timeControlId) return;
 
@@ -466,6 +596,9 @@ class MultiplayerService {
     player: UserProfile,
     timeControlId: TimeControlId = 'rapid_10_0'
   ): RankedMatchSession {
+    if (isGuestUser(player)) {
+      throw new Error('Ranked AI match rejected: guest access prohibited.');
+    }
     const elo = player.elo;
     let aiDifficultyId = 'casual';
     let aiElo = elo;

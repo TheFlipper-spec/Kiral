@@ -24,10 +24,16 @@ import type { ScoreDeltaData } from './components/ScoreDeltaNotification';
 import { MatchmakingModal } from './components/MatchmakingModal';
 import { UserProfileModal } from './components/UserProfileModal';
 import { multiplayerService } from './services/multiplayerService';
-import type { RankedMatchSession, MovePayload, DirectChallengePayload, LiveGamePresence } from './services/multiplayerService';
-import { Swords, RotateCw, Handshake, Flag, Volume2, VolumeX, Undo2, Activity, Upload, CheckCircle2 } from 'lucide-react';
+import type {
+  RankedMatchSession,
+  MovePayload,
+  DirectChallengePayload,
+  DirectChallengeResponsePayload,
+  LiveGamePresence
+} from './services/multiplayerService';
+import { Swords, RotateCw, Handshake, Flag, Volume2, VolumeX, Undo2, Activity, Upload, CheckCircle2, Clock, X } from 'lucide-react';
 import { neuralVoice } from './services/neuralVoiceService';
-import { userService } from './services/userService';
+import { userService, isGuestUser } from './services/userService';
 import type { UserProfile, ActiveGameSyncData } from './services/userService';
 import { cloudDatabase } from './services/cloudDatabase';
 import { classifySingleMove, calculatePlayerAccuracy, quickEvaluateFen } from './engine/evalFormulas';
@@ -38,6 +44,15 @@ import type { GameReport, MoveAnalysis, MoveClassification, EngineEvaluation, Ti
 
 const STORAGE_ACTIVE_RANKED_MATCH = 'kiral_active_ranked_match_v1';
 const INITIAL_RANKED_TIME_SEC = 600; // 10 minutes per player
+const CHALLENGE_TIMEOUT_SEC = 60;
+
+interface OutgoingChallengeState {
+  challengeId: string;
+  roomId: string;
+  targetUser: UserProfile;
+  timeControlId: TimeControlId;
+  sentAt: number;
+}
 
 export const App: React.FC = () => {
   // User profile & leaderboards
@@ -151,6 +166,14 @@ export const App: React.FC = () => {
   const [activeRankedSession, setActiveRankedSession] = useState<RankedMatchSession | null>(null);
   const [activeTimeControlId, setActiveTimeControlId] = useState<TimeControlId>('rapid_10_0');
   const [incomingChallenge, setIncomingChallenge] = useState<DirectChallengePayload | null>(null);
+  const incomingChallengeRef = useRef<DirectChallengePayload | null>(null);
+  incomingChallengeRef.current = incomingChallenge;
+  const [outgoingChallenge, setOutgoingChallenge] = useState<OutgoingChallengeState | null>(null);
+  const outgoingChallengeRef = useRef<OutgoingChallengeState | null>(null);
+  outgoingChallengeRef.current = outgoingChallenge;
+  const [outgoingRemainingSec, setOutgoingRemainingSec] = useState<number>(CHALLENGE_TIMEOUT_SEC);
+  const [challengeNotice, setChallengeNotice] = useState<string | null>(null);
+  const challengeNoticeTimerRef = useRef<number | null>(null);
   const [whiteTime, setWhiteTime] = useState<number>(INITIAL_RANKED_TIME_SEC);
   const [blackTime, setBlackTime] = useState<number>(INITIAL_RANKED_TIME_SEC);
   const whiteTimeRef = useRef<number>(whiteTime);
@@ -2439,7 +2462,12 @@ export const App: React.FC = () => {
         return;
       }
 
-      if (saved.gameMode === 'ranked' && saved.session) {
+      if (saved.gameMode === 'ranked') {
+        if (isGuestUser(currentUser) || !saved.session) {
+          localStorage.removeItem(STORAGE_ACTIVE_RANKED_MATCH);
+          userService.clearActiveGame();
+          return;
+        }
         const session: RankedMatchSession = saved.session;
         const wRestored =
           typeof saved.whiteTime === 'number' ? saved.whiteTime : INITIAL_RANKED_TIME_SEC;
@@ -2683,7 +2711,29 @@ export const App: React.FC = () => {
     }
   }, [currentUser, activeRankedSession, gameMode, fens.length, restoreActiveGame]);
 
+  const showChallengeNotice = useCallback((msg: string) => {
+    setChallengeNotice(msg);
+    if (challengeNoticeTimerRef.current) {
+      window.clearTimeout(challengeNoticeTimerRef.current);
+    }
+    challengeNoticeTimerRef.current = window.setTimeout(() => {
+      setChallengeNotice(null);
+      challengeNoticeTimerRef.current = null;
+    }, 4500);
+  }, []);
+
   const handleStartRankedSession = useCallback((session: RankedMatchSession) => {
+    const pendingOutgoing = outgoingChallengeRef.current;
+    if (pendingOutgoing && pendingOutgoing.roomId !== session.roomId) {
+      outgoingChallengeRef.current = null;
+      setOutgoingChallenge(null);
+      multiplayerService.cancelDirectChallenge({
+        challengeId: pendingOutgoing.challengeId,
+        roomId: pendingOutgoing.roomId,
+        toUserId: pendingOutgoing.targetUser.id,
+        timeControlId: pendingOutgoing.timeControlId
+      });
+    }
     gameAnalyzer.cancel();
     stockfish.clearQueue();
     setIsAnalyzing(false);
@@ -2776,40 +2826,181 @@ export const App: React.FC = () => {
     triggerAiMove
   ]);
 
+  const requestRankedAccess = useCallback((): boolean => {
+    if (isGuestUser(currentUser)) {
+      setPendingPostAuthAction('ranked');
+      setAuthPromptMessage(
+        'Для участия в соревновательном рейтинге и сохранения ELO необходима регистрация или вход в профиль.'
+      );
+      setIsAuthOpen(true);
+      sound.speak('Для входа в рейтинг требуется регистрация.');
+      return false;
+    }
+    return true;
+  }, [currentUser]);
+
   const handleAcceptIncomingChallenge = async (chal: DirectChallengePayload) => {
     setIncomingChallenge(null);
-    const session = await multiplayerService.acceptDirectChallenge(
-      chal,
-      handleOpponentOnlineMove,
-      handleOpponentResign,
-      () => {},
-      handleOpponentTimeout,
-      handleOpponentDrawOffer,
-      handleOpponentDrawAccept
-    );
-    handleStartRankedSession(session);
+    if (!requestRankedAccess()) return;
+    try {
+      const session = await multiplayerService.acceptDirectChallenge(
+        chal,
+        handleOpponentOnlineMove,
+        handleOpponentResign,
+        handleOpponentDrawAccept,
+        handleOpponentTimeout,
+        handleOpponentDrawOffer,
+        handleOpponentDrawAccept,
+        handleRequestSync,
+        handleFullSync,
+        handleHeartbeat
+      );
+      handleStartRankedSession(session);
+    } catch (err) {
+      console.error('Accept incoming challenge error:', err);
+    }
   };
 
+  const handleDeclineIncomingChallenge = async (chal: DirectChallengePayload) => {
+    setIncomingChallenge(null);
+    await multiplayerService.declineDirectChallenge(chal);
+  };
+
+  const handleCancelOutgoingChallenge = useCallback(async () => {
+    const pending = outgoingChallengeRef.current;
+    if (!pending) return;
+    outgoingChallengeRef.current = null;
+    setOutgoingChallenge(null);
+    await multiplayerService.cancelDirectChallenge({
+      challengeId: pending.challengeId,
+      roomId: pending.roomId,
+      toUserId: pending.targetUser.id,
+      timeControlId: pending.timeControlId
+    });
+  }, []);
+
   const handleChallengePlayer = async (targetUser: UserProfile) => {
+    if (!requestRankedAccess()) return;
+    if (targetUser.id === currentUser.id) return;
     try {
-      const roomId = await multiplayerService.sendDirectChallenge(targetUser.id);
-      const session: RankedMatchSession = {
+      // Cancel any previous pending challenge before sending a new one
+      const prevPending = outgoingChallengeRef.current;
+      if (prevPending) {
+        outgoingChallengeRef.current = null;
+        setOutgoingChallenge(null);
+        await multiplayerService.cancelDirectChallenge({
+          challengeId: prevPending.challengeId,
+          roomId: prevPending.roomId,
+          toUserId: prevPending.targetUser.id,
+          timeControlId: prevPending.timeControlId
+        });
+      }
+
+      const challengeId = `chal_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const timeControlId = activeTimeControlId || 'rapid_10_0';
+      const roomId = await multiplayerService.sendDirectChallenge(targetUser.id, {
+        challengeId,
+        timeControlId
+      });
+
+      const pending: OutgoingChallengeState = {
+        challengeId,
         roomId,
-        isOnlinePvP: true,
-        myColor: 'w',
-        opponent: {
-          id: targetUser.id,
-          username: targetUser.username,
-          elo: targetUser.elo,
-          avatarUrl: targetUser.avatarUrl,
-          isAi: false
-        }
+        targetUser,
+        timeControlId,
+        sentAt: Date.now()
       };
-      handleStartRankedSession(session);
+      outgoingChallengeRef.current = pending;
+      setOutgoingChallenge(pending);
+      setOutgoingRemainingSec(CHALLENGE_TIMEOUT_SEC);
+      showChallengeNotice(`Вызов отправлен игроку ${targetUser.username}. Ожидание ответа...`);
     } catch (err) {
       console.error('Challenge player error:', err);
     }
   };
+
+  // Subscribe to challenge acceptance / decline / cancellation responses
+  useEffect(() => {
+    const unsub = multiplayerService.onChallengeResponse((resp: DirectChallengeResponsePayload) => {
+      if (resp.status === 'cancelled' && resp.toUserId === currentUser.id) {
+        const incoming = incomingChallengeRef.current;
+        if (incoming && (incoming.challengeId === resp.challengeId || incoming.roomId === resp.roomId)) {
+          setIncomingChallenge(null);
+          showChallengeNotice(`${incoming.fromUser.username} отменил вызов на партию.`);
+        }
+        return;
+      }
+
+      if (resp.fromUserId !== currentUser.id) return;
+      const pending = outgoingChallengeRef.current;
+      if (!pending || (pending.challengeId !== resp.challengeId && pending.roomId !== resp.roomId)) {
+        return;
+      }
+
+      if (resp.status === 'accepted') {
+        outgoingChallengeRef.current = null;
+        setOutgoingChallenge(null);
+        setChallengeNotice(null);
+        setIsLeaderboardOpen(false);
+        setSelectedProfileUser(null);
+        setIsMatchmakingOpen(false);
+
+        const session: RankedMatchSession = {
+          roomId: resp.roomId,
+          isOnlinePvP: true,
+          myColor: 'w',
+          timeControlId: resp.timeControlId || pending.timeControlId,
+          opponent: {
+            id: resp.toUser.id || pending.targetUser.id,
+            username: resp.toUser.username || pending.targetUser.username,
+            elo: resp.toUser.elo || pending.targetUser.elo,
+            avatarUrl: resp.toUser.avatarUrl || pending.targetUser.avatarUrl,
+            isAi: false
+          }
+        };
+        handleStartRankedSession(session);
+        sound.playCheck();
+        sound.speak(`${session.opponent.username} принял вызов. Ваш ход!`);
+      } else if (resp.status === 'declined') {
+        outgoingChallengeRef.current = null;
+        setOutgoingChallenge(null);
+        showChallengeNotice(`${pending.targetUser.username} отклонил вызов на партию.`);
+      }
+    });
+
+    return () => unsub();
+  }, [currentUser.id, handleStartRankedSession, showChallengeNotice]);
+
+  // Countdown and auto-expiry for pending outgoing challenge
+  useEffect(() => {
+    if (!outgoingChallenge) {
+      setOutgoingRemainingSec(CHALLENGE_TIMEOUT_SEC);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - outgoingChallenge.sentAt) / 1000);
+      const remaining = Math.max(0, CHALLENGE_TIMEOUT_SEC - elapsed);
+      setOutgoingRemainingSec(remaining);
+      if (remaining <= 0) {
+        window.clearInterval(timer);
+        const expired = outgoingChallengeRef.current;
+        if (expired && expired.challengeId === outgoingChallenge.challengeId) {
+          outgoingChallengeRef.current = null;
+          setOutgoingChallenge(null);
+          multiplayerService.cancelDirectChallenge({
+            challengeId: expired.challengeId,
+            roomId: expired.roomId,
+            toUserId: expired.targetUser.id,
+            timeControlId: expired.timeControlId
+          });
+          showChallengeNotice(`Игрок ${expired.targetUser.username} не ответил на вызов.`);
+        }
+      }
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [outgoingChallenge, showChallengeNotice]);
 
   const handleStartSpectate = useCallback((presence: LiveGamePresence) => {
     setIsLeaderboardOpen(false);
@@ -2911,18 +3102,7 @@ export const App: React.FC = () => {
     }
 
     if (newMode === 'ranked') {
-      const isGuestTesting =
-        currentUser.authProvider === 'custom' ||
-        (typeof window !== 'undefined' &&
-          (Boolean((window as any).__KIRAL_GUEST_TESTING__) ||
-            Boolean((window as any).__KIRAL_TESTING__) ||
-            localStorage.getItem('kiral_guest_testing') === 'true'));
-      const isGuest = (!currentUser.isRegistered || currentUser.authProvider === 'guest') && !isGuestTesting;
-      if (isGuest) {
-        setPendingPostAuthAction('ranked');
-        setAuthPromptMessage('Для участия в соревновательном рейтинге и сохранения ELO необходима регистрация или вход в профиль.');
-        setIsAuthOpen(true);
-        sound.speak('Для входа в рейтинг требуется регистрация.');
+      if (!requestRankedAccess()) {
         return;
       }
       setGameMode(newMode);
@@ -3007,7 +3187,11 @@ export const App: React.FC = () => {
     setRemoteActiveGamePrompt(null);
 
     if (gameMode === 'ranked') {
-      setIsMatchmakingOpen(true);
+      if (requestRankedAccess()) {
+        setIsMatchmakingOpen(true);
+      } else {
+        setGameMode('home');
+      }
     } else if (gameMode === 'vs-ai') {
       startVsAiGame(playerColor);
     } else if (gameMode === 'pvp') {
@@ -3267,27 +3451,66 @@ export const App: React.FC = () => {
 
       {/* Floating incoming friend challenge notification */}
       {incomingChallenge && (
-        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 p-3 rounded-xl bg-[#141414] border border-[#1baca6] shadow-2xl flex items-center gap-3 backdrop-blur-md animate-in slide-in-from-top max-w-sm w-[92%] sm:w-full">
-          <Swords className="w-4 h-4 text-[#1baca6] shrink-0" />
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-[60] p-3 rounded-xl bg-[#141414] border border-[#1baca6] shadow-lg flex items-center gap-3 max-w-sm w-[92%] sm:w-full">
+          <Swords className="w-4 h-4 text-[#1baca6] shrink-0" strokeWidth={1.5} />
           <div className="flex-1 truncate">
             <span className="text-xs font-mono text-white block truncate">
               Вызов от <strong>{incomingChallenge.fromUser.username}</strong>
             </span>
             <span className="text-[10px] font-mono text-[#888888]">
               {incomingChallenge.fromUser.elo} ELO
+              {incomingChallenge.timeControlId
+                ? ` • ${TIME_CONTROLS.find((t) => t.id === incomingChallenge.timeControlId)?.label || ''}`
+                : ''}
             </span>
           </div>
           <button
             onClick={() => handleAcceptIncomingChallenge(incomingChallenge)}
-            className="px-2.5 py-1 rounded bg-[#1baca6] text-black font-mono font-bold text-xs hover:bg-[#20c2bc] transition-colors shrink-0"
+            className="min-h-[36px] px-2.5 py-1 rounded bg-[#1baca6] text-black font-mono font-bold text-xs hover:bg-[#20c2bc] transition-colors shrink-0"
           >
             Принять
           </button>
           <button
-            onClick={() => setIncomingChallenge(null)}
-            className="px-2 py-1 rounded bg-[#222222] text-[#888888] font-mono text-xs hover:text-white transition-colors shrink-0"
+            onClick={() => handleDeclineIncomingChallenge(incomingChallenge)}
+            className="min-h-[36px] px-2 py-1 rounded bg-[#222222] text-[#888888] font-mono text-xs hover:text-white transition-colors shrink-0"
           >
             Отклонить
+          </button>
+        </div>
+      )}
+
+      {/* Floating outgoing challenge waiting notification (game does not start until opponent accepts) */}
+      {outgoingChallenge && !incomingChallenge && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-[60] p-3 rounded-xl bg-[#141414] border border-[#262626] shadow-lg flex items-center gap-3 max-w-sm w-[92%] sm:w-full">
+          <Clock className="w-4 h-4 text-[#f0c15c] shrink-0 animate-pulse" strokeWidth={1.5} />
+          <div className="flex-1 truncate">
+            <span className="text-xs font-mono text-white block truncate">
+              Ожидание ответа: <strong>{outgoingChallenge.targetUser.username}</strong>
+            </span>
+            <span className="text-[10px] font-mono text-[#888888]">
+              Партия начнётся после принятия • {outgoingRemainingSec}с
+            </span>
+          </div>
+          <button
+            onClick={handleCancelOutgoingChallenge}
+            className="min-h-[36px] px-2.5 py-1 rounded bg-[#222222] hover:bg-[#2E2E2E] border border-[#333333] text-zinc-300 hover:text-white font-mono text-xs transition-colors shrink-0"
+          >
+            Отменить
+          </button>
+        </div>
+      )}
+
+      {/* Brief challenge status toast (declined / cancelled / timed out) */}
+      {challengeNotice && !incomingChallenge && !outgoingChallenge && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-[60] px-3 py-2.5 rounded-xl bg-[#141414] border border-[#262626] shadow-lg flex items-center gap-2.5 max-w-sm w-[92%] sm:w-full">
+          <Swords className="w-4 h-4 text-[#888888] shrink-0" strokeWidth={1.5} />
+          <span className="flex-1 text-xs font-mono text-[#EDEDED] truncate">{challengeNotice}</span>
+          <button
+            onClick={() => setChallengeNotice(null)}
+            className="p-1 rounded text-[#888888] hover:text-white transition-colors shrink-0"
+            title="Закрыть уведомление"
+          >
+            <X className="w-3.5 h-3.5" strokeWidth={1.5} />
           </button>
         </div>
       )}
@@ -3343,7 +3566,11 @@ export const App: React.FC = () => {
         <main className="flex-1 w-full min-h-0 overflow-y-auto">
           <HomePage
             currentUser={currentUser}
-            onStartRanked={() => setIsMatchmakingOpen(true)}
+            onStartRanked={() => {
+              if (requestRankedAccess()) {
+                handleChangeMode('ranked');
+              }
+            }}
             onStartVsAi={(diffId) => {
               handleChangeAiDifficulty(diffId);
               setGameMode('vs-ai');
@@ -3517,7 +3744,11 @@ export const App: React.FC = () => {
                         <span>Анализ партии</span>
                       </button>
                       <button
-                        onClick={() => setIsMatchmakingOpen(true)}
+                        onClick={() => {
+                          if (requestRankedAccess()) {
+                            setIsMatchmakingOpen(true);
+                          }
+                        }}
                         className="min-h-[42px] py-2 px-3 rounded-lg bg-[#1C1C1C] hover:bg-[#262626] border border-[#333333] text-zinc-200 text-xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
                       >
                         <Swords className="w-3.5 h-3.5 text-amber-400" />
@@ -3713,6 +3944,9 @@ export const App: React.FC = () => {
         onClose={() => setIsMatchmakingOpen(false)}
         currentUser={currentUser}
         onStartMatch={handleStartRankedSession}
+        onRequestAuth={() => {
+          requestRankedAccess();
+        }}
       />
 
       <UserProfileModal

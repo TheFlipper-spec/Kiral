@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Globe, Bot, Swords, User, Clock } from 'lucide-react';
-import type { UserProfile } from '../services/userService';
+import { isGuestUser, type UserProfile } from '../services/userService';
 import { multiplayerService } from '../services/multiplayerService';
 import type { RankedMatchSession } from '../services/multiplayerService';
 import { TIME_CONTROLS } from '../types/chess';
@@ -11,18 +11,22 @@ interface MatchmakingModalProps {
   onClose: () => void;
   currentUser: UserProfile;
   onStartMatch: (session: RankedMatchSession) => void;
+  onRequestAuth?: () => void;
 }
 
 export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
   isOpen,
   onClose,
   currentUser,
-  onStartMatch
+  onStartMatch,
+  onRequestAuth
 }) => {
   const [isSearching, setIsSearching] = useState(false);
   const [searchSeconds, setSearchSeconds] = useState(0);
   const [cancelFn, setCancelFn] = useState<(() => void) | null>(null);
   const [selectedTimeControlId, setSelectedTimeControlId] = useState<TimeControlId>('rapid_10_0');
+
+  const isGuest = isGuestUser(currentUser);
 
   useEffect(() => {
     let timer: any = null;
@@ -42,6 +46,11 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
   if (!isOpen) return null;
 
   const handleStartSearch = async () => {
+    if (isGuest) {
+      if (onRequestAuth) onRequestAuth();
+      onClose();
+      return;
+    }
     setIsSearching(true);
     const cancel = await multiplayerService.startMatchmaking(
       currentUser,
@@ -61,6 +70,11 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
   };
 
   const handleStartRankedAi = () => {
+    if (isGuest) {
+      if (onRequestAuth) onRequestAuth();
+      onClose();
+      return;
+    }
     const session = multiplayerService.createRankedAiMatch(currentUser, selectedTimeControlId);
     onStartMatch(session);
     onClose();
@@ -111,8 +125,12 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
                 </span>
               </div>
             </div>
-            <span className="px-2.5 py-1 rounded bg-[#1baca6]/15 border border-[#1baca6]/30 text-[#1baca6] font-mono font-bold text-xs">
-              {currentUser.elo} ELO
+            <span className={`px-2.5 py-1 rounded border font-mono font-bold text-xs ${
+              isGuest
+                ? 'bg-amber-500/15 border-amber-500/30 text-amber-400'
+                : 'bg-[#1baca6]/15 border-[#1baca6]/30 text-[#1baca6]'
+            }`}>
+              {isGuest ? 'Гость (Без рейтинга)' : `${currentUser.elo} ELO`}
             </span>
           </div>
 
@@ -143,7 +161,29 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
             </div>
           </div>
 
-          {!isSearching ? (
+          {isGuest ? (
+            /* Guest Authorization Notice */
+            <div className="w-full p-5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex flex-col items-center text-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                <User className="w-5 h-5" strokeWidth={1.5} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-mono font-bold text-white">Требуется авторизация</h3>
+                <p className="text-xs font-mono text-[#AAAAAA] max-w-xs leading-relaxed">
+                  Для участия в соревновательном рейтинге и сохранения ELO необходима регистрация или вход в профиль.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  onClose();
+                  if (onRequestAuth) onRequestAuth();
+                }}
+                className="mt-2 py-2 px-4 rounded-lg bg-[#1baca6] hover:bg-[#20c2bc] text-black font-mono font-bold text-xs transition-colors cursor-pointer active:scale-95"
+              >
+                Войти / Зарегистрироваться
+              </button>
+            </div>
+          ) : !isSearching ? (
             /* Mode Selector */
             <div className="w-full space-y-3">
               <span className="text-[11px] font-mono text-[#888888] uppercase tracking-wider block text-center mb-1">
