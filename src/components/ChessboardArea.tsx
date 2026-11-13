@@ -679,6 +679,16 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const getClockBadgeClass = (timeRemaining: number, isTurn?: boolean) => {
+    if (timeRemaining < 20) {
+      return 'bg-rose-950/80 border-rose-600 text-rose-300 animate-pulse';
+    }
+    if (isTurn) {
+      return 'bg-[#1baca6]/20 border-[#1baca6] text-white';
+    }
+    return 'bg-[#181818] border-[#2C2C2C] text-[#777777]';
+  };
+
   const boardWidthClass = "kiral-board-container";
 
   const topCaptured = topPlayer ? (topPlayer.color === 'w' ? capturedSummary.whiteCaptures : capturedSummary.blackCaptures) : [];
@@ -770,13 +780,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             )}
             {typeof topPlayer.timeRemaining === 'number' && (
               <div
-                className={`px-2 py-0.5 rounded border font-mono text-xs font-bold flex items-center gap-1 transition-colors ${
-                  topPlayer.timeRemaining < 60
-                    ? 'bg-rose-950/80 border-rose-600 text-rose-300 animate-pulse'
-                    : topPlayer.isTurn
-                    ? 'bg-[#1baca6]/20 border-[#1baca6] text-white'
-                    : 'bg-[#181818] border-[#2C2C2C] text-[#777777]'
-                }`}
+                className={`px-2 py-0.5 rounded border font-mono text-xs font-bold flex items-center gap-1 transition-colors ${getClockBadgeClass(topPlayer.timeRemaining, topPlayer.isTurn)}`}
                 title="Оставшееся время соперника"
               >
                 <Clock className="w-3 h-3" />
@@ -1226,13 +1230,7 @@ export const ChessboardArea: React.FC<ChessboardAreaProps> = ({
             )}
             {typeof bottomPlayer.timeRemaining === 'number' && (
               <div
-                className={`px-2 py-0.5 rounded border font-mono text-xs font-bold flex items-center gap-1 transition-colors ${
-                  bottomPlayer.timeRemaining < 60
-                    ? 'bg-rose-950/80 border-rose-600 text-rose-300 animate-pulse'
-                    : bottomPlayer.isTurn
-                    ? 'bg-[#1baca6]/25 border-[#1baca6] text-white'
-                    : 'bg-[#181818] border-[#2C2C2C] text-[#777777]'
-                }`}
+                className={`px-2 py-0.5 rounded border font-mono text-xs font-bold flex items-center gap-1 transition-colors ${getClockBadgeClass(bottomPlayer.timeRemaining, bottomPlayer.isTurn)}`}
                 title="Ваше оставшееся время"
               >
                 <Clock className="w-3 h-3" />

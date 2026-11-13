@@ -317,8 +317,20 @@ describe('Tier 1: Feature 6 - Game Over Checks', () => {
 });
 
 describe('Tier 1: Feature 7 - Fischer Clocks and Time Controls', () => {
-  it('verifies standard time controls configuration', () => {
-    expect(TIME_CONTROLS.length).toBe(4);
+  it('verifies standard time controls configuration including bullet', () => {
+    expect(TIME_CONTROLS.length).toBe(6);
+    const bullet10 = TIME_CONTROLS.find((tc) => tc.id === 'bullet_1_0');
+    expect(bullet10).toBeDefined();
+    expect(bullet10?.category).toBe('Пуля');
+    expect(bullet10?.initialSeconds).toBe(60);
+    expect(bullet10?.incrementSeconds).toBe(0);
+
+    const bullet21 = TIME_CONTROLS.find((tc) => tc.id === 'bullet_2_1');
+    expect(bullet21).toBeDefined();
+    expect(bullet21?.category).toBe('Пуля');
+    expect(bullet21?.initialSeconds).toBe(120);
+    expect(bullet21?.incrementSeconds).toBe(1);
+
     const blitz32 = TIME_CONTROLS.find((tc) => tc.id === 'blitz_3_2');
     expect(blitz32).toBeDefined();
     expect(blitz32?.initialSeconds).toBe(180);

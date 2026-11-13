@@ -39,7 +39,7 @@ import { cloudDatabase } from './services/cloudDatabase';
 import { classifySingleMove, calculatePlayerAccuracy, quickEvaluateFen } from './engine/evalFormulas';
 import { detectOpeningNameFromMoves } from './engine/bookMoves';
 import { extractPlayerMistakes } from './engine/mistakeReplay';
-import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES, TIME_CONTROLS } from './types/chess';
+import { CLASSIFICATION_CONFIGS, AI_DIFFICULTIES, TIME_CONTROLS, getTimeControlConfig } from './types/chess';
 import type { GameReport, MoveAnalysis, MoveClassification, EngineEvaluation, TimeControlId, PlayedMatchRecord } from './types/chess';
 
 const STORAGE_ACTIVE_RANKED_MATCH = 'kiral_active_ranked_match_v1';
@@ -190,9 +190,7 @@ export const App: React.FC = () => {
   isRankedActiveRef.current = isRankedActive;
 
   const activeTimeControl = useMemo(
-    () =>
-      TIME_CONTROLS.find((t) => t.id === (activeRankedSession?.timeControlId || activeTimeControlId)) ||
-      TIME_CONTROLS[2],
+    () => getTimeControlConfig(activeRankedSession?.timeControlId || activeTimeControlId),
     [activeRankedSession?.timeControlId, activeTimeControlId]
   );
 
@@ -2744,7 +2742,7 @@ export const App: React.FC = () => {
     setIsPreviewingLine(false);
     setPreviewFen(null);
 
-    const tc = TIME_CONTROLS.find((t) => t.id === session.timeControlId) || TIME_CONTROLS[2];
+    const tc = getTimeControlConfig(session.timeControlId);
     setActiveTimeControlId(tc.id);
     setWhiteTime(tc.initialSeconds);
     setBlackTime(tc.initialSeconds);

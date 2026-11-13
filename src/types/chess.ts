@@ -213,18 +213,40 @@ export const AI_DIFFICULTIES: AiDifficultyConfig[] = [
   { id: 'impossible', name: 'Невозможно', depth: 24, skillLevel: 20, eloApprox: 3600 }
 ];
 
-export type TimeControlId = 'blitz_3_2' | 'blitz_5_0' | 'rapid_10_0' | 'classical_15_10';
+export type TimeControlId =
+  | 'bullet_1_0'
+  | 'bullet_2_1'
+  | 'blitz_3_2'
+  | 'blitz_5_0'
+  | 'rapid_10_0'
+  | 'classical_15_10';
 
 export interface TimeControlConfig {
   id: TimeControlId;
   name: string;
-  category: 'Блиц' | 'Рапид' | 'Классика';
+  category: 'Пуля' | 'Блиц' | 'Рапид' | 'Классика';
   initialSeconds: number;
   incrementSeconds: number;
   label: string;
 }
 
 export const TIME_CONTROLS: TimeControlConfig[] = [
+  {
+    id: 'bullet_1_0',
+    name: 'Пуля 1+0',
+    category: 'Пуля',
+    initialSeconds: 60,
+    incrementSeconds: 0,
+    label: '1 мин'
+  },
+  {
+    id: 'bullet_2_1',
+    name: 'Пуля 2+1',
+    category: 'Пуля',
+    initialSeconds: 120,
+    incrementSeconds: 1,
+    label: '2 + 1'
+  },
   {
     id: 'blitz_3_2',
     name: 'Блиц 3+2',
@@ -258,6 +280,14 @@ export const TIME_CONTROLS: TimeControlConfig[] = [
     label: '15 + 10'
   }
 ];
+
+export const getTimeControlConfig = (id?: TimeControlId): TimeControlConfig => {
+  return (
+    TIME_CONTROLS.find((t) => t.id === id) ||
+    TIME_CONTROLS.find((t) => t.id === 'rapid_10_0') ||
+    TIME_CONTROLS[0]
+  );
+};
 
 export interface FriendRequest {
   id: string;

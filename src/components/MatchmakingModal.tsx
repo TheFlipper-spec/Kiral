@@ -140,7 +140,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
               <Clock className="w-3.5 h-3.5 text-[#1baca6]" />
               Контроль времени (Часы Фишера):
             </span>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
               {TIME_CONTROLS.map((tc) => {
                 const isSelected = tc.id === selectedTimeControlId;
                 return (
